@@ -1,0 +1,15 @@
+{
+  "silence_threshold_db": -30.0,
+  "min_segment_ms": 800,
+  "min_silence_ms": 300,
+  "max_segment_ms": 10000,
+  "min_transcribe_ms": 500,
+  "pre_roll_ms": 200,
+  "sample_rate": 48000,
+  "channels": 2,
+  "rolling_enabled": false,
+  "window_transcribe_enabled": false,
+  "rolling_window_ms": 8000,
+  "rolling_step_ms": 500,
+  "rolling_min_ms": 1500
+}

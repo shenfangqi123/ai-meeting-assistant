@@ -1,0 +1,8 @@
+﻿{
+  "llm": {
+    "provider": "ollama",
+    "openai_base_url": "https://api.openai.com",
+    "ollama_base_url": "http://localhost:11434",
+    "model": "gpt-oss:20b"
+  }
+}

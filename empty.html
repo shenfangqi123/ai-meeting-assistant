@@ -1,0 +1,112 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Live Translation</title>
+    <style>
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        background: #f7f4ef;
+        font-family: "Space Grotesk", "Noto Sans SC", sans-serif;
+        color: #2a241f;
+      }
+
+      :root {
+        --bg: #f7f4ef;
+        --surface: #ffffff;
+        --ink: #2a241f;
+        --muted: #6f645a;
+        --accent: #da5a34;
+        --border: #e1d9cf;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      .wrap {
+        height: 100%;
+        display: grid;
+        grid-template-rows: auto auto 1fr;
+        gap: 12px;
+        padding: 16px;
+      }
+
+      header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+      }
+
+      header h1 {
+        font-size: 15px;
+        margin: 0;
+        font-weight: 600;
+      }
+
+      .list {
+        background: var(--surface);
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        padding: 10px;
+        overflow-y: auto;
+      }
+
+      .empty {
+        color: var(--muted);
+        font-size: 13px;
+        text-align: center;
+        padding: 24px 0;
+      }
+
+      .translation-text {
+        font-size: 13px;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .draft-text {
+        font-size: 13px;
+        line-height: 1.6;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: var(--muted);
+      }
+
+      .draft-text[data-state="pending"] {
+        color: var(--muted);
+        font-style: italic;
+      }
+
+      .translation-text[data-state="pending"] {
+        color: var(--muted);
+        font-style: italic;
+      }
+
+      .translation-text[data-state="error"] {
+        color: #b23b2a;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>Live Translation</h1>
+      </header>
+      <section class="list" id="draftList">
+        <div class="empty" id="draftEmpty">Waiting for live draft...</div>
+        <div class="draft-text" id="draftText" data-state="pending"></div>
+      </section>
+      <section class="list" id="translationList">
+        <div class="empty" id="translationEmpty">Waiting for captions...</div>
+        <div class="translation-text" id="translationText" data-state="pending"></div>
+      </section>
+    </div>
+    <script type="module" src="/src/right.js"></script>
+  </body>
+</html>

@@ -1,0 +1,368 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Output</title>
+    <style>
+      :root {
+        --bg: #f7f4ef;
+        --surface: #ffffff;
+        --ink: #2a241f;
+        --muted: #6f645a;
+        --accent: #da5a34;
+        --border: #e1d9cf;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      html,
+      body {
+        width: 100%;
+        height: 100%;
+        margin: 0;
+        font-family: "Space Grotesk", "Noto Sans SC", sans-serif;
+        background: var(--bg);
+        color: var(--ink);
+      }
+
+      .wrap {
+        height: 100%;
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        gap: 12px;
+        padding: 16px;
+      }
+
+      header {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+      }
+
+      .header-controls {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      header h1 {
+        font-size: 16px;
+        margin: 0;
+        font-weight: 600;
+      }
+
+      .status {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      .live {
+        background: var(--surface);
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        padding: 12px;
+        display: grid;
+        gap: 8px;
+      }
+
+      .live-header {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 12px;
+      }
+
+      .live-title {
+        font-size: 13px;
+        font-weight: 600;
+        margin: 0;
+      }
+
+      .live-meta {
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .live-meta-group {
+        display: inline-flex;
+        align-items: center;
+        gap: 8px;
+      }
+
+      .live-speaker {
+        font-size: 11px;
+        padding: 3px 8px;
+        border-radius: 999px;
+        background: #efe7dc;
+        color: var(--ink);
+        border: 1px solid var(--border);
+      }
+
+      .live-speaker[data-state="unknown"] {
+        color: var(--muted);
+        font-style: italic;
+      }
+
+      .live-final,
+      .live-partial {
+        font-size: 13px;
+        line-height: 1.5;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .live-final {
+        color: var(--ink);
+        display: grid;
+        gap: 0;
+      }
+
+      .live-final-list {
+        display: grid;
+        gap: 0;
+      }
+
+      .live-final-line {
+        padding: 0 8px;
+        border-radius: 8px;
+      }
+
+      .live-final-line.inserted {
+        background: rgba(218, 90, 52, 0.16);
+        border: 1px solid rgba(218, 90, 52, 0.25);
+      }
+
+      .live-final-stable {
+        padding: 6px 8px;
+        border-radius: 8px;
+        background: #f3efe9;
+        color: var(--muted);
+        font-style: italic;
+      }
+
+      .live-partial {
+        color: var(--muted);
+      }
+
+      .live-partial[data-empty="true"] {
+        font-style: italic;
+      }
+
+      .list {
+        background: var(--surface);
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        padding: 8px;
+        overflow-y: auto;
+        display: grid;
+        gap: 8px;
+      }
+
+      .empty {
+        color: var(--muted);
+        font-size: 13px;
+        text-align: center;
+        padding: 24px 0;
+      }
+
+      .segment {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        gap: 8px;
+        padding: 8px 10px;
+        border-radius: 10px;
+        border: 1px solid transparent;
+        background: #faf8f5;
+      }
+
+      .segment.active {
+        border-color: var(--accent);
+        box-shadow: 0 6px 16px rgba(218, 90, 52, 0.12);
+      }
+
+      .segment-title {
+        display: flex;
+        flex-direction: column;
+        gap: 4px;
+        min-width: 0;
+      }
+
+      .segment-title strong {
+        font-size: 13px;
+        font-weight: 600;
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
+      }
+
+      .segment-meta {
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .segment-speaker {
+        font-size: 11px;
+        color: var(--muted);
+      }
+
+      .segment-speaker[data-state="unknown"] {
+        font-style: italic;
+      }
+
+      .segment-translation {
+        font-size: 12px;
+        color: var(--ink);
+        line-height: 1.4;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .segment-translation[data-state="pending"] {
+        color: var(--muted);
+        font-style: italic;
+      }
+
+      .segment-translation[data-state="error"] {
+        color: #b23b2a;
+      }
+
+      .segment-transcript {
+        font-size: 12px;
+        color: var(--ink);
+        line-height: 1.4;
+        margin-top: 2px;
+        white-space: pre-wrap;
+        word-break: break-word;
+      }
+
+      .segment-transcript[data-state="pending"] {
+        color: var(--muted);
+        font-style: italic;
+      }
+
+      .segment-transcript[data-state="error"] {
+        color: #b23b2a;
+      }
+
+      .segment button {
+        border: none;
+        background: var(--accent);
+        color: white;
+        padding: 6px 10px;
+        border-radius: 999px;
+        cursor: pointer;
+        font-size: 12px;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+      }
+
+      .segment-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .play-button {
+        width: 32px;
+        height: 32px;
+        padding: 0;
+      }
+
+      .play-button svg {
+        width: 16px;
+        height: 16px;
+        fill: white;
+      }
+
+      .translate-button {
+        background: #2c6c4f;
+        width: 32px;
+        height: 32px;
+        padding: 0;
+      }
+
+      .translate-button svg {
+        width: 16px;
+        height: 16px;
+        fill: white;
+      }
+
+      .provider-toggle {
+        border: 1px solid var(--border);
+        background: var(--surface);
+        color: var(--ink);
+        padding: 6px 10px;
+        border-radius: 999px;
+        font-size: 12px;
+        cursor: pointer;
+      }
+
+      .toggle {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+        font-size: 12px;
+        color: var(--muted);
+        cursor: pointer;
+      }
+
+      .toggle input {
+        accent-color: var(--accent);
+      }
+
+      .player {
+        background: var(--surface);
+        border-radius: 14px;
+        border: 1px solid var(--border);
+        padding: 10px 12px;
+        display: grid;
+        gap: 6px;
+      }
+
+      .player-meta {
+        font-size: 12px;
+        color: var(--muted);
+      }
+
+      audio {
+        width: 100%;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <header>
+        <h1>Segments</h1>
+        <div class="header-controls">
+          <span class="status" id="segmentStatus">No segments</span>
+          <label class="toggle">
+            <input id="translateToggle" type="checkbox" />
+            翻译
+          </label>
+          <button class="provider-toggle" id="providerToggle" type="button">Ollama</button>
+        </div>
+      </header>
+      <section class="live">
+        <div class="live-header">
+          <h2 class="live-title">Live Captions</h2>
+          <div class="live-meta-group">
+            <span class="live-speaker" id="liveSpeaker" data-state="unknown">Speaker ?</span>
+            <span class="live-meta" id="liveMeta">Idle</span>
+          </div>
+        </div>
+        <div class="live-final" id="liveFinal"></div>
+        <div class="live-partial" id="livePartial" data-empty="true">Waiting for speech...</div>
+      </section>
+      <div class="player">
+        <div class="player-meta" id="playerMeta">No segment selected</div>
+        <audio id="player" controls></audio>
+      </div>
+    </div>
+    <script type="module" src="/src/output.js"></script>
+  </body>
+</html>

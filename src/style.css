@@ -1,0 +1,241 @@
+@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap");
+
+:root {
+  color-scheme: light;
+  --bg: #f2efe9;
+  --bg-accent: #fbe6d1;
+  --surface: #ffffff;
+  --surface-alt: #f7f4ef;
+  --ink: #1f1b16;
+  --muted: #5b524a;
+  --accent: #da5a34;
+  --accent-dark: #b64422;
+  --border: #d9d2c7;
+  --shadow: 0 18px 40px rgba(31, 27, 22, 0.12);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  font-family: "Space Grotesk", "Noto Sans SC", sans-serif;
+  color: var(--ink);
+  background: radial-gradient(circle at top left, #fbe6d1, transparent 40%),
+    radial-gradient(circle at 30% 30%, #dbe3ff, transparent 45%),
+    linear-gradient(120deg, #f8f4ef, #f2efe9 60%, #f0ebe3);
+  overflow: hidden;
+}
+
+#app {
+  height: 100%;
+  display: grid;
+  gap: 16px;
+  padding: 20px;
+  overflow-y: auto;
+}
+
+.top-bar {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+  gap: 16px;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  padding: 16px 18px;
+  box-shadow: var(--shadow);
+}
+
+.panel h1,
+.panel h2 {
+  margin: 0 0 12px;
+  font-weight: 600;
+}
+
+.section {
+  padding-top: 6px;
+  border-top: 1px dashed var(--border);
+  margin-top: 14px;
+}
+
+.section:first-of-type {
+  margin-top: 10px;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  align-items: center;
+  margin-bottom: 12px;
+}
+
+.row:last-child {
+  margin-bottom: 0;
+}
+
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.field.compact {
+  flex-direction: row;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.8rem;
+}
+
+.field.compact span {
+  white-space: nowrap;
+}
+
+.field input,
+.field textarea,
+.field select {
+  padding: 8px 10px;
+  border-radius: 10px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--ink);
+  font-family: inherit;
+}
+
+.field textarea {
+  resize: vertical;
+  min-width: 220px;
+}
+
+.field.grow {
+  flex: 1 1 320px;
+}
+
+button {
+  padding: 8px 14px;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  background: var(--surface-alt);
+  color: var(--ink);
+  font-family: inherit;
+  cursor: pointer;
+  transition: transform 0.15s ease, box-shadow 0.15s ease, border-color 0.15s ease;
+}
+
+button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 16px rgba(31, 27, 22, 0.12);
+  border-color: var(--accent);
+}
+
+button.primary {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent-dark);
+}
+
+button.secondary {
+  background: #1f1b16;
+  color: #fff;
+  border-color: #1f1b16;
+}
+
+.group {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 6px 10px;
+  background: var(--surface-alt);
+  border-radius: 12px;
+  border: 1px dashed var(--border);
+}
+
+.group .label {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.provider-toggle {
+  padding: 6px 14px;
+  border-radius: 999px;
+  font-size: 0.85rem;
+  background: var(--surface);
+}
+
+.provider-toggle[data-provider="openai"] {
+  border-color: #3568d4;
+  color: #244799;
+}
+
+.provider-toggle[data-provider="ollama"] {
+  border-color: #2c6c4f;
+  color: #24533d;
+}
+
+.toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.toggle input {
+  accent-color: var(--accent);
+}
+
+.output {
+  background: #1f1b16;
+  color: #f5efe6;
+  border-radius: 12px;
+  padding: 12px;
+  min-height: 80px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.8rem;
+  white-space: pre-wrap;
+}
+
+.status {
+  font-size: 0.85rem;
+  color: var(--muted);
+}
+
+.splitter {
+  position: fixed;
+  left: 20px;
+  right: 20px;
+  bottom: 8px;
+  height: 10px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: linear-gradient(90deg, rgba(218, 90, 52, 0.25), rgba(218, 90, 52, 0.6));
+  box-shadow: 0 8px 20px rgba(31, 27, 22, 0.16);
+  cursor: row-resize;
+  z-index: 10;
+}
+
+.splitter.dragging {
+  background: linear-gradient(90deg, rgba(218, 90, 52, 0.35), rgba(218, 90, 52, 0.85));
+}
+
+@media (max-width: 900px) {
+  #app {
+    padding: 12px;
+  }
+
+  .splitter {
+    left: 12px;
+    right: 12px;
+  }
+}

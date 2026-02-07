@@ -1,0 +1,10 @@
+node_modules/
+dist/
+src-tauri/target/
+.DS_Store
+*.log
+ai-interview.config
+msix-out/
+whisper-bin-x64/
+install/models/
+install/optional-models/models/
