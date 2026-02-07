@@ -60,6 +60,7 @@ struct RagAskRequest {
   query: String,
   project_ids: Vec<String>,
   top_k: Option<usize>,
+  allow_out_of_context: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -414,6 +415,7 @@ async fn rag_ask_with_provider(
     return Err("project_ids is empty".to_string());
   }
   let top_k = request.top_k.unwrap_or(8).clamp(1, 20);
+  let allow_out_of_context = request.allow_out_of_context.unwrap_or(false);
   let provider = provider_state
     .provider
     .lock()
@@ -450,13 +452,23 @@ async fn rag_ask_with_provider(
       .join("\n\n")
   };
 
-  let prompt = format!(
-    "你是项目代码/文档问答助手。请仅基于给定上下文回答问题。\n\
+  let prompt = if allow_out_of_context {
+    format!(
+      "你是项目代码/文档问答助手。请优先使用给定上下文回答问题。\n\
+若上下文不足，你可以补充通用知识完成回答，但要明确标注“以下内容超出检索上下文”。\n\
+若引用上下文结论，请在句尾用 [n] 标注来源编号。\n\n\
+问题:\n{query}\n\n\
+上下文:\n{context}"
+    )
+  } else {
+    format!(
+      "你是项目代码/文档问答助手。请仅基于给定上下文回答问题。\n\
 如果上下文不足，请明确说“根据当前检索结果无法确定”。\n\
 回答要简洁，并在关键结论后用 [n] 标注来源编号。\n\n\
 问题:\n{query}\n\n\
 上下文:\n{context}"
-  );
+    )
+  };
 
   let config = load_config()?;
   let answer = generate_with_selected_provider(&provider, &prompt, &config).await?;

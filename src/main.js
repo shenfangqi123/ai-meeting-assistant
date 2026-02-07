@@ -46,6 +46,7 @@ const projectProgressDoneBtn = document.getElementById("projectProgressDoneBtn")
 const ragSearchModal = document.getElementById("ragSearchModal");
 const ragSearchPrompt = document.getElementById("ragSearchPrompt");
 const ragSearchAskBtn = document.getElementById("ragSearchAskBtn");
+const ragAllowOutOfContext = document.getElementById("ragAllowOutOfContext");
 const ragSearchOutput = document.getElementById("ragSearchOutput");
 const ragSearchProjectInfo = document.getElementById("ragSearchProjectInfo");
 const ragSearchCloseBtn = document.getElementById("ragSearchCloseBtn");
@@ -229,6 +230,7 @@ const runRagSearch = async () => {
     return;
   }
   const query = (ragSearchPrompt?.value || "").trim();
+  const allowOutOfContext = !!ragAllowOutOfContext?.checked;
   if (!query) {
     appendRagOutput("请输入问题");
     return;
@@ -250,6 +252,7 @@ const runRagSearch = async () => {
         query,
         project_ids: [project.project_id],
         top_k: 8,
+        allow_out_of_context: allowOutOfContext,
       },
     });
     const provider = String(response?.provider || currentTranslateProvider || "ollama");
