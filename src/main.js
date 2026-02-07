@@ -238,6 +238,9 @@ const runRagSearch = async () => {
   if (ragSearchAskBtn) {
     ragSearchAskBtn.disabled = true;
   }
+  if (ragSearchOutput) {
+    ragSearchOutput.textContent = "";
+  }
   appendRagOutput("---------------------------------");
   appendRagOutput(`> query: ${query}`);
 
