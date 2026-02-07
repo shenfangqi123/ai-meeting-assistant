@@ -15,6 +15,7 @@ const asrStart = document.getElementById("asrStart");
 const captureStatus = document.getElementById("captureStatus");
 const clearSegmentsBtn = document.getElementById("clearSegments");
 const projectQuickSelect = document.getElementById("projectQuickSelect");
+const ragSearchBtn = document.getElementById("ragSearchBtn");
 const splitter = document.getElementById("splitter");
 
 const projectSettingsBtn = document.getElementById("projectSettingsBtn");
@@ -41,6 +42,13 @@ const projectProgressSkippedWrap = document.getElementById("projectProgressSkipp
 const projectProgressSkippedList = document.getElementById("projectProgressSkippedList");
 const projectProgressDoneBtn = document.getElementById("projectProgressDoneBtn");
 
+const ragSearchModal = document.getElementById("ragSearchModal");
+const ragSearchPrompt = document.getElementById("ragSearchPrompt");
+const ragSearchAskBtn = document.getElementById("ragSearchAskBtn");
+const ragSearchOutput = document.getElementById("ragSearchOutput");
+const ragSearchProjectInfo = document.getElementById("ragSearchProjectInfo");
+const ragSearchCloseBtn = document.getElementById("ragSearchCloseBtn");
+
 let resizeState = null;
 let pendingResize = null;
 let resizeFrame = null;
@@ -60,6 +68,8 @@ let createDraftBusy = false;
 let progressRunning = false;
 let progressInterval = null;
 let progressValue = 0;
+let ragSearchModalOpen = false;
+let ragSearchRunning = false;
 
 const normalizeUrl = (raw) => {
   if (!raw) return "";
@@ -154,6 +164,95 @@ const renderProjectQuickSelect = () => {
   }
 
   projectQuickSelect.value = selectedId;
+};
+
+const getSelectedProject = () => {
+  const selectedId = selectedProjectIds[0] || projectQuickSelect?.value || "";
+  if (!selectedId) return null;
+  return projects.find((project) => project.project_id === selectedId) || null;
+};
+
+const appendRagOutput = (text) => {
+  if (!ragSearchOutput) return;
+  ragSearchOutput.textContent = ragSearchOutput.textContent
+    ? `${ragSearchOutput.textContent}\n${text}`
+    : text;
+  ragSearchOutput.scrollTop = ragSearchOutput.scrollHeight;
+};
+
+const openRagSearchModal = () => {
+  if (!ragSearchModal) return;
+  const project = getSelectedProject();
+  if (!project) {
+    window.alert("请先选择项目");
+    return;
+  }
+  ragSearchModalOpen = true;
+  ragSearchModal.classList.remove("hidden");
+  ragSearchModal.setAttribute("aria-hidden", "false");
+  if (ragSearchProjectInfo) {
+    ragSearchProjectInfo.textContent = `当前项目：${project.project_name} (${project.project_id})`;
+  }
+  if (ragSearchOutput) {
+    ragSearchOutput.textContent = "";
+  }
+  ragSearchPrompt?.focus();
+};
+
+const closeRagSearchModal = () => {
+  if (!ragSearchModal || ragSearchRunning) return;
+  ragSearchModalOpen = false;
+  ragSearchModal.classList.add("hidden");
+  ragSearchModal.setAttribute("aria-hidden", "true");
+};
+
+const runRagSearch = async () => {
+  if (ragSearchRunning) return;
+  const project = getSelectedProject();
+  if (!project) {
+    window.alert("请先选择项目");
+    return;
+  }
+  const query = (ragSearchPrompt?.value || "").trim();
+  if (!query) {
+    appendRagOutput("请输入问题");
+    return;
+  }
+
+  ragSearchRunning = true;
+  if (ragSearchAskBtn) {
+    ragSearchAskBtn.disabled = true;
+  }
+  appendRagOutput(`> query: ${query}`);
+
+  try {
+    const response = await invoke("rag_search", {
+      request: {
+        query,
+        project_ids: [project.project_id],
+        top_k: 8,
+      },
+    });
+    const hits = Array.isArray(response?.hits) ? response.hits : [];
+    if (!hits.length) {
+      appendRagOutput("no hits");
+      return;
+    }
+    for (let i = 0; i < hits.length; i += 1) {
+      const hit = hits[i];
+      const score = Number(hit.score ?? 0).toFixed(4);
+      const text = String(hit.text || "").replace(/\s+/g, " ").slice(0, 220);
+      appendRagOutput(`[${i + 1}] score=${score} file=${hit.file_path || ""} chunk=${hit.chunk_id || ""}`);
+      appendRagOutput(`     hit=${text}`);
+    }
+  } catch (error) {
+    appendRagOutput(`error: ${error}`);
+  } finally {
+    ragSearchRunning = false;
+    if (ragSearchAskBtn) {
+      ragSearchAskBtn.disabled = false;
+    }
+  }
 };
 
 const syncSelectedProject = () => {
@@ -768,6 +867,25 @@ projectQuickSelect?.addEventListener("change", () => {
   setCurrentProject(project);
 });
 
+ragSearchBtn?.addEventListener("click", () => {
+  openRagSearchModal();
+});
+
+ragSearchAskBtn?.addEventListener("click", () => {
+  void runRagSearch();
+});
+
+ragSearchPrompt?.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") {
+    event.preventDefault();
+    void runRagSearch();
+  }
+});
+
+ragSearchCloseBtn?.addEventListener("click", () => {
+  closeRagSearchModal();
+});
+
 projectSettingsBtn?.addEventListener("click", () => {
   void openProjectModal();
 });
@@ -781,6 +899,10 @@ projectModal?.addEventListener("click", (event) => {
 });
 
 window.addEventListener("keydown", (event) => {
+  if (event.key === "Escape" && ragSearchModalOpen && !ragSearchRunning) {
+    closeRagSearchModal();
+    return;
+  }
   const progressVisible = projectProgressModal && !projectProgressModal.classList.contains("hidden");
   if (event.key === "Escape" && progressVisible) {
     event.preventDefault();

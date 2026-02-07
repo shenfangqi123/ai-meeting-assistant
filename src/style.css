@@ -508,6 +508,49 @@ button:disabled {
   gap: 6px;
 }
 
+.rag-search-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 12, 9, 0.55);
+  z-index: 150;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.rag-search-modal {
+  width: min(820px, 100%);
+  max-height: 90vh;
+  overflow: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.rag-search-modal h3 {
+  margin: 0;
+}
+
+.rag-search-output {
+  min-height: 220px;
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #fbf7f1;
+  padding: 10px;
+  font-family: "IBM Plex Mono", monospace;
+  font-size: 0.82rem;
+  line-height: 1.5;
+  white-space: pre-wrap;
+  color: #312921;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);

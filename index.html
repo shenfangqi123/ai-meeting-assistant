@@ -46,6 +46,7 @@
                   <option value=""></option>
                 </select>
               </label>
+              <button id="ragSearchBtn" type="button">测试RAG</button>
               <span id="currentProjectLabel" class="status">当前项目：未选择</span>
             </div>
           </div>
@@ -110,6 +111,23 @@
         </details>
         <div class="row">
           <button id="projectProgressDoneBtn" class="primary hidden" type="button">确定</button>
+        </div>
+      </div>
+    </div>
+    <div id="ragSearchModal" class="rag-search-backdrop hidden" aria-hidden="true">
+      <div class="rag-search-modal" role="dialog" aria-modal="true" aria-labelledby="ragSearchTitle">
+        <h3 id="ragSearchTitle">RAG 测试</h3>
+        <div class="row">
+          <label class="field grow">
+            <span>提问</span>
+            <input id="ragSearchPrompt" type="text" placeholder="请输入问题" />
+          </label>
+          <button id="ragSearchAskBtn" class="primary" type="button">询问</button>
+        </div>
+        <div id="ragSearchProjectInfo" class="status"></div>
+        <div id="ragSearchOutput" class="rag-search-output"></div>
+        <div class="row">
+          <button id="ragSearchCloseBtn" class="primary" type="button">确定</button>
         </div>
       </div>
     </div>
