@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 
 const meetingUrlDefault = "https://zoom.us/signin";
 const SELECTED_PROJECT_STORAGE_KEY = "rag_selected_project_id";
+const PROJECT_MODAL_EXPANDED_HEIGHT = 9999;
+const PROJECT_MODAL_COLLAPSED_HEIGHT = 190;
 
 const urlInput = document.getElementById("urlInput");
 const loadBtn = document.getElementById("loadBtn");
@@ -438,6 +440,11 @@ const loadProjects = async () => {
 
 const openProjectModal = async () => {
   if (!projectModal) return;
+  try {
+    await invoke("set_top_height", { height: PROJECT_MODAL_EXPANDED_HEIGHT });
+  } catch (error) {
+    logError(`expand top error: ${error}`);
+  }
   isProjectModalOpen = true;
   projectModal.classList.remove("hidden");
   projectModal.setAttribute("aria-hidden", "false");
@@ -450,6 +457,9 @@ const closeProjectModal = () => {
   isProjectModalOpen = false;
   projectModal.classList.add("hidden");
   projectModal.setAttribute("aria-hidden", "true");
+  void invoke("set_top_height", { height: PROJECT_MODAL_COLLAPSED_HEIGHT }).catch((error) => {
+    logError(`collapse top error: ${error}`);
+  });
 };
 
 const createProjectAndSyncFromSelection = async (projectName, rootDir) => {
