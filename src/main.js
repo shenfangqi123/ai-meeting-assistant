@@ -11,6 +11,7 @@ const asrLanguageSelect = document.getElementById("asrLanguage");
 const asrStart = document.getElementById("asrStart");
 const captureStatus = document.getElementById("captureStatus");
 const clearSegmentsBtn = document.getElementById("clearSegments");
+const ragSmokeBtn = document.getElementById("ragSmokeBtn");
 const splitter = document.getElementById("splitter");
 
 let resizeState = null;
@@ -18,6 +19,7 @@ let pendingResize = null;
 let resizeFrame = null;
 let isCapturing = false;
 let currentAsrProvider = "whisperserver";
+const RAG_TEST_DIVIDER = "---------------------------------";
 
 const normalizeUrl = (raw) => {
   if (!raw) return "";
@@ -28,6 +30,15 @@ const normalizeUrl = (raw) => {
 const logError = (message) => {
   if (message) {
     console.warn(message);
+  }
+};
+
+const logRagTest = (title, payload, isError = false) => {
+  const logger = isError ? console.error : console.log;
+  logger(RAG_TEST_DIVIDER);
+  logger(`[RAG TEST] ${title}`);
+  if (payload !== undefined) {
+    logger(payload);
   }
 };
 
@@ -188,6 +199,58 @@ asrLanguageSelect?.addEventListener("change", async () => {
     }
   } catch (error) {
     logError(`asr language error: ${error}`);
+  }
+});
+
+ragSmokeBtn?.addEventListener("click", async () => {
+  ragSmokeBtn.disabled = true;
+  const rootDir = "C:/Codes/ai-shepherd-interview";
+  const projectId = `rag_smoke_${Date.now()}`;
+  const fileA = `${rootDir}/README.md`;
+  const fileB = `${rootDir}/src/main.js`;
+
+  try {
+    logRagTest("START", { projectId, rootDir, files: [fileA, fileB] });
+
+    const addRequest = {
+      project_id: projectId,
+      file_paths: [fileA, fileB],
+    };
+    logRagTest("rag_index_add_files REQUEST", addRequest);
+    const addResult = await invoke("rag_index_add_files", { request: addRequest });
+    logRagTest("rag_index_add_files RESPONSE", addResult);
+
+    const searchRequest = {
+      query: "AI Shepherd",
+      project_ids: [projectId],
+      top_k: 5,
+    };
+    logRagTest("rag_search REQUEST", searchRequest);
+    const searchResult = await invoke("rag_search", { request: searchRequest });
+    logRagTest("rag_search RESPONSE", searchResult);
+
+    const syncRequest = {
+      project_id: projectId,
+      root_dir: rootDir,
+    };
+    logRagTest("rag_index_sync_project REQUEST", syncRequest);
+    const syncResult = await invoke("rag_index_sync_project", { request: syncRequest });
+    logRagTest("rag_index_sync_project RESPONSE", syncResult);
+
+    const removeRequest = {
+      project_id: projectId,
+      file_paths: [fileB],
+    };
+    logRagTest("rag_index_remove_files REQUEST", removeRequest);
+    const removeResult = await invoke("rag_index_remove_files", { request: removeRequest });
+    logRagTest("rag_index_remove_files RESPONSE", removeResult);
+
+    logRagTest("DONE");
+  } catch (error) {
+    logRagTest("FAILED", error, true);
+    logError(`rag smoke test error: ${error}`);
+  } finally {
+    ragSmokeBtn.disabled = false;
   }
 });
 
