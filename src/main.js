@@ -254,26 +254,11 @@ const runRagSearch = async () => {
     });
     const provider = String(response?.provider || currentTranslateProvider || "ollama");
     const answer = String(response?.answer || "").trim();
-    const references = Array.isArray(response?.references) ? response.references : [];
 
     appendRagOutput(`provider: ${provider}`);
     appendRagOutput("");
     appendRagOutput("LLM answer:");
     appendRagOutput(answer || "(empty)");
-    appendRagOutput("");
-    appendRagOutput(`references: ${references.length}`);
-
-    if (!references.length) {
-      appendRagOutput("no hits");
-    } else {
-      for (const reference of references) {
-        const score = Number(reference.score ?? 0).toFixed(4);
-        appendRagOutput(
-          `[${reference.index || 0}] score=${score} file=${reference.file_path || ""} chunk=${reference.chunk_id || ""}`
-        );
-        appendRagOutput(`     hit=${reference.snippet || ""}`);
-      }
-    }
   } catch (error) {
     appendRagOutput(`error: ${error}`);
   } finally {
