@@ -4,8 +4,6 @@ import { listen } from "@tauri-apps/api/event";
 const listEl = document.getElementById("segmentList");
 const emptyHint = document.getElementById("emptyHint");
 const statusEl = document.getElementById("segmentStatus");
-const player = document.getElementById("player");
-const playerMeta = document.getElementById("playerMeta");
 const liveFinalEl = document.getElementById("liveFinal");
 const livePartialEl = document.getElementById("livePartial");
 const liveMetaEl = document.getElementById("liveMeta");
@@ -50,9 +48,6 @@ translateToggle?.addEventListener("change", () => {
 });
 
 const segmentMap = new Map();
-let currentUrl = null;
-let activeRow = null;
-let activeSegmentName = null;
 let liveFinalLog = "";
 let liveFinalFlat = "";
 let liveStable = "";
@@ -398,31 +393,6 @@ const applyWindowTranscript = (payload) => {
 };
 
 
-const setActiveRow = (row) => {
-  if (activeRow) {
-    activeRow.classList.remove("active");
-  }
-  activeRow = row;
-  if (activeRow) {
-    activeRow.classList.add("active");
-  }
-};
-
-const playSegment = async (info, row) => {
-  const bytes = await invoke("read_segment_bytes", { name: info.name });
-  const blob = new Blob([new Uint8Array(bytes)], { type: "audio/wav" });
-  if (currentUrl) {
-    URL.revokeObjectURL(currentUrl);
-  }
-  currentUrl = URL.createObjectURL(blob);
-  player.src = currentUrl;
-  await player.play();
-  activeSegmentName = info.name;
-  const speakerLabel = formatSpeaker(info).text;
-  playerMeta.textContent = `${speakerLabel} | ${info.name} | ${formatDuration(info.duration_ms)} | ${formatTime(info.created_at)}`;
-  setActiveRow(row);
-};
-
 const createRow = (info) => {
   const row = document.createElement("div");
   row.className = "segment";
@@ -472,12 +442,6 @@ const createRow = (info) => {
   }
   title.appendChild(translation);
 
-  const button = document.createElement("button");
-  button.className = "play-button";
-  button.setAttribute("aria-label", "Play");
-  button.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>';
-  button.addEventListener("click", () => playSegment(info, row));
-
   const translateButton = document.createElement("button");
   translateButton.className = "translate-button";
   translateButton.setAttribute("aria-label", "Translate");
@@ -489,12 +453,10 @@ const createRow = (info) => {
 
   const actions = document.createElement("div");
   actions.className = "segment-actions";
-  actions.appendChild(button);
   actions.appendChild(translateButton);
 
   row.appendChild(title);
   row.appendChild(actions);
-  row.addEventListener("dblclick", () => playSegment(info, row));
 
   return row;
 };
@@ -513,10 +475,6 @@ const updateSpeaker = (info) => {
         delete speaker.dataset.state;
       }
     }
-  }
-  if (activeSegmentName && info.name === activeSegmentName) {
-    const speakerText = speakerLabel.text;
-    playerMeta.textContent = `${speakerText} | ${info.name} | ${formatDuration(info.duration_ms)} | ${formatTime(info.created_at)}`;
   }
 };
 
@@ -642,15 +600,6 @@ const clearSegmentsUi = () => {
       stable.style.display = "none";
     }
   }
-  if (currentUrl) {
-    URL.revokeObjectURL(currentUrl);
-    currentUrl = null;
-  }
-  player.removeAttribute("src");
-  player.load();
-  playerMeta.textContent = "No segment selected";
-  activeSegmentName = null;
-  setActiveRow(null);
   updateStatus();
   liveFinalLog = "";
   liveFinalFlat = "";
