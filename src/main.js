@@ -14,6 +14,7 @@ const asrLanguageSelect = document.getElementById("asrLanguage");
 const asrStart = document.getElementById("asrStart");
 const captureStatus = document.getElementById("captureStatus");
 const clearSegmentsBtn = document.getElementById("clearSegments");
+const projectQuickSelect = document.getElementById("projectQuickSelect");
 const splitter = document.getElementById("splitter");
 
 const projectSettingsBtn = document.getElementById("projectSettingsBtn");
@@ -123,6 +124,7 @@ const setCurrentProject = (project) => {
     selectedProjectName = "";
     localStorage.removeItem(SELECTED_PROJECT_STORAGE_KEY);
     updateCurrentProjectLabel();
+    renderProjectQuickSelect();
     renderProjectList();
     return;
   }
@@ -130,7 +132,28 @@ const setCurrentProject = (project) => {
   selectedProjectName = project.project_name;
   localStorage.setItem(SELECTED_PROJECT_STORAGE_KEY, project.project_id);
   updateCurrentProjectLabel();
+  renderProjectQuickSelect();
   renderProjectList();
+};
+
+const renderProjectQuickSelect = () => {
+  if (!projectQuickSelect) return;
+  const selectedId = selectedProjectIds[0] || "";
+
+  projectQuickSelect.innerHTML = "";
+  const emptyOption = document.createElement("option");
+  emptyOption.value = "";
+  emptyOption.textContent = "";
+  projectQuickSelect.appendChild(emptyOption);
+
+  for (const project of projects) {
+    const option = document.createElement("option");
+    option.value = project.project_id;
+    option.textContent = project.project_name || project.project_id;
+    projectQuickSelect.appendChild(option);
+  }
+
+  projectQuickSelect.value = selectedId;
 };
 
 const syncSelectedProject = () => {
@@ -431,6 +454,7 @@ const loadProjects = async () => {
     const response = await invoke("rag_project_list");
     projects = Array.isArray(response?.projects) ? response.projects : [];
     syncSelectedProject();
+    renderProjectQuickSelect();
     renderProjectList();
   } catch (error) {
     logError(`project list error: ${error}`);
@@ -728,6 +752,20 @@ asrLanguageSelect?.addEventListener("change", async () => {
   } catch (error) {
     logError(`asr language error: ${error}`);
   }
+});
+
+projectQuickSelect?.addEventListener("change", () => {
+  const selectedId = projectQuickSelect.value;
+  if (!selectedId) {
+    setCurrentProject(null);
+    return;
+  }
+  const project = projects.find((item) => item.project_id === selectedId);
+  if (!project) {
+    setCurrentProject(null);
+    return;
+  }
+  setCurrentProject(project);
 });
 
 projectSettingsBtn?.addEventListener("click", () => {
