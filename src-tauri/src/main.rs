@@ -35,7 +35,6 @@ const RIGHT_URL: &str = "empty.html";
 const DIVIDER_URL: &str = "divider.html";
 const INTRO_URL: &str = "intro.html";
 const DIVIDER_WIDTH: f64 = 12.0;
-const TOP_RATIO: f64 = 0.33;
 const MIN_TOP_HEIGHT: f64 = 190.0;
 const MAX_TOP_HEIGHT: f64 = 10_000.0;
 const MIN_BOTTOM_HEIGHT: f64 = 100.0;
@@ -113,7 +112,7 @@ fn compute_layout(
   let width = size.width as f64 / scale;
   let height = size.height as f64 / scale;
 
-  let target = (height * TOP_RATIO).round();
+  let target = MIN_TOP_HEIGHT;
   let max_allowed = (height - MIN_BOTTOM_HEIGHT).max(120.0);
   let override_top = override_top.filter(|value| value.is_finite() && *value > 0.0);
   let mut top_height = override_top.unwrap_or(target);
