@@ -54,20 +54,23 @@
         <div class="project-modal-body">
           <section class="project-create-section">
             <div class="row">
-              <button id="projectPickDirBtn" class="primary" type="button">新建项目</button>
+              <button id="projectNewBtn" class="primary" type="button">新建项目</button>
               <span id="projectCreateStatus" class="status"></span>
             </div>
             <div id="projectDraft" class="project-draft hidden">
               <label class="field grow">
                 <span>项目名称</span>
-                <input id="projectNameInput" type="text" placeholder="请输入项目名称" />
+                <input id="projectNameInput" type="text" placeholder="先输入项目名称（必填）" />
               </label>
               <div class="field grow">
-                <span>目录路径</span>
-                <div id="projectRootPath" class="readonly-path"></div>
+                <span>项目目录</span>
+                <div class="row">
+                  <button id="projectChooseDirBtn" type="button">选择项目目录</button>
+                  <div id="projectRootPath" class="readonly-path">未选择</div>
+                </div>
               </div>
               <div class="row">
-                <button id="projectCreateConfirmBtn" class="primary" type="button">创建并立即索引</button>
+                <span class="status">选完目录后会自动创建并开始索引</span>
                 <button id="projectCreateCancelBtn" type="button">取消</button>
               </div>
             </div>
@@ -76,6 +79,31 @@
             <h3>项目列表</h3>
             <div id="projectList" class="project-list"></div>
           </section>
+        </div>
+      </div>
+    </div>
+    <div id="projectProgressModal" class="project-progress-backdrop hidden" aria-hidden="true">
+      <div class="project-progress-modal" role="dialog" aria-modal="true" aria-labelledby="projectProgressTitle">
+        <h3 id="projectProgressTitle">正在建立项目索引...</h3>
+        <div class="project-progress-line">
+          <span id="projectProgressPercent">0%</span>
+        </div>
+        <div class="project-progress-bar">
+          <div id="projectProgressFill" class="project-progress-fill"></div>
+        </div>
+        <div id="projectProgressText" class="status">准备中...</div>
+        <div id="projectProgressPath" class="project-progress-path"></div>
+        <div id="projectProgressMetrics" class="status"></div>
+        <details class="project-progress-logs-wrap">
+          <summary>实时日志</summary>
+          <div id="projectProgressLogs" class="project-progress-logs"></div>
+        </details>
+        <details id="projectProgressSkippedWrap" class="project-progress-skipped hidden">
+          <summary>跳过文件详情</summary>
+          <div id="projectProgressSkippedList" class="project-progress-skipped-list"></div>
+        </details>
+        <div class="row">
+          <button id="projectProgressDoneBtn" class="primary hidden" type="button">确定</button>
         </div>
       </div>
     </div>

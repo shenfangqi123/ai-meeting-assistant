@@ -71,6 +71,10 @@ pub fn create_project<R: Runtime>(
   if !root_dir.exists() {
     return Err(format!("root dir not found: {}", root_dir.display()));
   }
+  if !root_dir.is_dir() {
+    return Err(format!("root dir is not a directory: {}", root_dir.display()));
+  }
+  fs::read_dir(root_dir).map_err(|err| format!("root dir not accessible: {err}"))?;
 
   let canonical = fs::canonicalize(root_dir).unwrap_or_else(|_| root_dir.to_path_buf());
   let canonical_root = canonical.to_string_lossy().to_string();

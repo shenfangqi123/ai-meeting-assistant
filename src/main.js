@@ -18,14 +18,25 @@ const projectSettingsBtn = document.getElementById("projectSettingsBtn");
 const currentProjectLabel = document.getElementById("currentProjectLabel");
 const projectModal = document.getElementById("projectModal");
 const projectModalClose = document.getElementById("projectModalClose");
-const projectPickDirBtn = document.getElementById("projectPickDirBtn");
+const projectNewBtn = document.getElementById("projectNewBtn");
 const projectCreateStatus = document.getElementById("projectCreateStatus");
 const projectDraft = document.getElementById("projectDraft");
 const projectNameInput = document.getElementById("projectNameInput");
+const projectChooseDirBtn = document.getElementById("projectChooseDirBtn");
 const projectRootPath = document.getElementById("projectRootPath");
-const projectCreateConfirmBtn = document.getElementById("projectCreateConfirmBtn");
 const projectCreateCancelBtn = document.getElementById("projectCreateCancelBtn");
 const projectList = document.getElementById("projectList");
+
+const projectProgressModal = document.getElementById("projectProgressModal");
+const projectProgressPercent = document.getElementById("projectProgressPercent");
+const projectProgressFill = document.getElementById("projectProgressFill");
+const projectProgressText = document.getElementById("projectProgressText");
+const projectProgressPath = document.getElementById("projectProgressPath");
+const projectProgressMetrics = document.getElementById("projectProgressMetrics");
+const projectProgressLogs = document.getElementById("projectProgressLogs");
+const projectProgressSkippedWrap = document.getElementById("projectProgressSkippedWrap");
+const projectProgressSkippedList = document.getElementById("projectProgressSkippedList");
+const projectProgressDoneBtn = document.getElementById("projectProgressDoneBtn");
 
 let resizeState = null;
 let pendingResize = null;
@@ -35,9 +46,17 @@ let currentAsrProvider = "whisperserver";
 let selectedProjectIds = [];
 let selectedProjectName = "";
 let projects = [];
-let pendingProjectDraft = null;
 const projectActionMap = new Map();
 let isProjectModalOpen = false;
+
+let isCreateDraftOpen = false;
+let createDraftName = "";
+let createDraftRootDir = "";
+let createDraftBusy = false;
+
+let progressRunning = false;
+let progressInterval = null;
+let progressValue = 0;
 
 const normalizeUrl = (raw) => {
   if (!raw) return "";
@@ -52,10 +71,10 @@ const normalizeRootPath = (value) => {
 };
 
 const basenameFromPath = (value) => {
-  if (!value) return "未命名项目";
+  if (!value) return "untitled";
   const normalized = value.replace(/\\/g, "/").replace(/\/+$/g, "");
   const segments = normalized.split("/");
-  return segments[segments.length - 1] || "未命名项目";
+  return segments[segments.length - 1] || "untitled";
 };
 
 const logError = (message) => {
@@ -73,7 +92,9 @@ const updateAsrUi = () => {
 
 const updateCaptureUi = (active) => {
   isCapturing = active;
-  asrStart.textContent = active ? "Stop Capture" : "Start Capture";
+  if (asrStart) {
+    asrStart.textContent = active ? "Stop Capture" : "Start Capture";
+  }
   if (captureStatus) {
     captureStatus.textContent = active ? "Capturing..." : "Idle";
   }
@@ -139,35 +160,181 @@ const setProjectAction = (projectId, action) => {
 const formatIndexReport = (report) => {
   if (!report) return "";
   return [
-    `indexed_files=${report.indexed_files ?? 0}`,
-    `updated_files=${report.updated_files ?? 0}`,
-    `deleted_files=${report.deleted_files ?? 0}`,
+    `indexed=${report.indexed_files ?? 0}`,
+    `updated=${report.updated_files ?? 0}`,
+    `deleted=${report.deleted_files ?? 0}`,
     `chunks_added=${report.chunks_added ?? 0}`,
     `chunks_deleted=${report.chunks_deleted ?? 0}`,
-  ].join(", ");
+    `skipped=${Array.isArray(report.skipped_files) ? report.skipped_files.length : 0}`,
+  ].join(" | ");
 };
 
 const renderProjectDraft = () => {
-  if (!projectDraft || !projectNameInput || !projectRootPath) return;
-  if (!pendingProjectDraft) {
+  if (!projectDraft || !projectNameInput || !projectRootPath || !projectChooseDirBtn || !projectNewBtn) return;
+
+  if (!isCreateDraftOpen) {
     projectDraft.classList.add("hidden");
     projectNameInput.value = "";
-    projectRootPath.textContent = "";
+    projectRootPath.textContent = "未选择";
+    projectChooseDirBtn.disabled = true;
+    projectNewBtn.disabled = false;
     return;
   }
 
   projectDraft.classList.remove("hidden");
-  projectNameInput.value = pendingProjectDraft.projectName;
-  projectNameInput.disabled = !!pendingProjectDraft.submitting;
-  projectRootPath.textContent = pendingProjectDraft.rootDir;
-  if (projectCreateConfirmBtn) {
-    projectCreateConfirmBtn.disabled = !!pendingProjectDraft.submitting;
-  }
+  projectNameInput.value = createDraftName;
+  projectNameInput.disabled = createDraftBusy;
+  projectRootPath.textContent = createDraftRootDir || "未选择";
+  projectNewBtn.disabled = createDraftBusy;
+
+  const hasValidName = createDraftName.trim().length > 0;
+  projectChooseDirBtn.disabled = createDraftBusy || !hasValidName;
   if (projectCreateCancelBtn) {
-    projectCreateCancelBtn.disabled = !!pendingProjectDraft.submitting;
+    projectCreateCancelBtn.disabled = createDraftBusy;
   }
-  if (projectPickDirBtn) {
-    projectPickDirBtn.disabled = !!pendingProjectDraft.submitting;
+};
+
+const openCreateDraft = () => {
+  isCreateDraftOpen = true;
+  createDraftName = "";
+  createDraftRootDir = "";
+  createDraftBusy = false;
+  setCreateStatus("");
+  renderProjectDraft();
+  projectNameInput?.focus();
+};
+
+const closeCreateDraft = () => {
+  if (createDraftBusy) return;
+  isCreateDraftOpen = false;
+  createDraftName = "";
+  createDraftRootDir = "";
+  renderProjectDraft();
+  setCreateStatus("");
+};
+
+const setProgress = (value, text) => {
+  progressValue = Math.max(0, Math.min(100, value));
+  if (projectProgressFill) {
+    projectProgressFill.style.width = `${progressValue}%`;
+  }
+  if (projectProgressPercent) {
+    projectProgressPercent.textContent = `${Math.round(progressValue)}%`;
+  }
+  if (text && projectProgressText) {
+    projectProgressText.textContent = text;
+  }
+};
+
+const addProgressLog = (line) => {
+  if (!projectProgressLogs) return;
+  const now = new Date();
+  const stamp = `${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")}:${String(now.getSeconds()).padStart(2, "0")}`;
+  const text = `[${stamp}] ${line}`;
+  projectProgressLogs.textContent = projectProgressLogs.textContent
+    ? `${projectProgressLogs.textContent}\n${text}`
+    : text;
+  projectProgressLogs.scrollTop = projectProgressLogs.scrollHeight;
+};
+
+const openProgressModal = ({ projectName, rootDir }) => {
+  progressRunning = true;
+  progressValue = 0;
+  if (!projectProgressModal) return;
+
+  projectProgressModal.classList.remove("hidden");
+  projectProgressModal.setAttribute("aria-hidden", "false");
+
+  if (projectProgressDoneBtn) {
+    projectProgressDoneBtn.classList.add("hidden");
+  }
+  if (projectProgressMetrics) {
+    projectProgressMetrics.textContent = "";
+  }
+  if (projectProgressPath) {
+    projectProgressPath.textContent = `项目：${projectName} | 目录：${rootDir}`;
+  }
+  if (projectProgressSkippedWrap) {
+    projectProgressSkippedWrap.classList.add("hidden");
+  }
+  if (projectProgressSkippedList) {
+    projectProgressSkippedList.innerHTML = "";
+  }
+  if (projectProgressLogs) {
+    projectProgressLogs.textContent = "";
+  }
+
+  setProgress(0, "准备开始...");
+  addProgressLog("开始创建项目");
+};
+
+const startFakeProgress = () => {
+  if (progressInterval) {
+    clearInterval(progressInterval);
+  }
+  progressInterval = setInterval(() => {
+    if (!progressRunning) return;
+    if (progressValue >= 90) return;
+    setProgress(progressValue + 2);
+  }, 350);
+};
+
+const stopFakeProgress = () => {
+  if (!progressInterval) return;
+  clearInterval(progressInterval);
+  progressInterval = null;
+};
+
+const showProgressResult = (report) => {
+  progressRunning = false;
+  stopFakeProgress();
+  setProgress(100, "索引完成");
+
+  const skipped = Array.isArray(report?.skipped_files) ? report.skipped_files : [];
+  if (projectProgressMetrics) {
+    projectProgressMetrics.textContent = formatIndexReport(report);
+  }
+
+  if (projectProgressSkippedWrap && projectProgressSkippedList) {
+    if (skipped.length) {
+      projectProgressSkippedWrap.classList.remove("hidden");
+      projectProgressSkippedList.innerHTML = skipped
+        .map((item) => `<div>${item.path} (${item.reason})</div>`)
+        .join("");
+    } else {
+      projectProgressSkippedWrap.classList.add("hidden");
+      projectProgressSkippedList.innerHTML = "";
+    }
+  }
+
+  addProgressLog("索引完成");
+  if (projectProgressDoneBtn) {
+    projectProgressDoneBtn.classList.remove("hidden");
+  }
+};
+
+const showProgressError = (error) => {
+  progressRunning = false;
+  stopFakeProgress();
+  if (projectProgressText) {
+    projectProgressText.textContent = "索引失败";
+  }
+  if (projectProgressMetrics) {
+    projectProgressMetrics.textContent = String(error);
+    projectProgressMetrics.style.color = "#b64422";
+  }
+  addProgressLog(`失败：${error}`);
+  if (projectProgressDoneBtn) {
+    projectProgressDoneBtn.classList.remove("hidden");
+  }
+};
+
+const closeProgressModal = () => {
+  if (progressRunning || !projectProgressModal) return;
+  projectProgressModal.classList.add("hidden");
+  projectProgressModal.setAttribute("aria-hidden", "true");
+  if (projectProgressMetrics) {
+    projectProgressMetrics.style.color = "";
   }
 };
 
@@ -274,22 +441,80 @@ const openProjectModal = async () => {
   isProjectModalOpen = true;
   projectModal.classList.remove("hidden");
   projectModal.setAttribute("aria-hidden", "false");
-  setCreateStatus("");
   await loadProjects();
   renderProjectDraft();
 };
 
 const closeProjectModal = () => {
-  if (!projectModal) return;
+  if (!projectModal || progressRunning) return;
   isProjectModalOpen = false;
   projectModal.classList.add("hidden");
   projectModal.setAttribute("aria-hidden", "true");
 };
 
-const pickProjectDirectory = async () => {
+const createProjectAndSyncFromSelection = async (projectName, rootDir) => {
+  createDraftBusy = true;
+  renderProjectDraft();
+  setCreateStatus("目录已选择，开始创建并索引...");
+
+  openProgressModal({ projectName, rootDir });
+  startFakeProgress();
+  setProgress(10, "创建项目记录...");
+  addProgressLog("正在创建项目配置");
+
+  try {
+    const created = await invoke("rag_project_create", {
+      request: {
+        project_name: projectName,
+        root_dir: rootDir,
+      },
+    });
+
+    setProgress(25, "开始扫描并索引...");
+    addProgressLog("开始执行增量同步");
+
+    const report = await invoke("rag_index_sync_project", {
+      request: {
+        project_id: created.project_id,
+        root_dir: created.root_dir,
+      },
+    });
+
+    await loadProjects();
+    setCurrentProject(created);
+    isCreateDraftOpen = false;
+    createDraftName = "";
+    createDraftRootDir = "";
+    createDraftBusy = false;
+    renderProjectDraft();
+    setCreateStatus("创建成功，索引已完成。");
+    showProgressResult(report);
+  } catch (error) {
+    createDraftBusy = false;
+    renderProjectDraft();
+    if (String(error).includes("project root already exists")) {
+      setCreateStatus("该目录已存在项目", true);
+    } else {
+      setCreateStatus(`创建失败：${error}`, true);
+    }
+    showProgressError(error);
+  }
+};
+
+const chooseDirectoryAndStart = async () => {
+  const name = (createDraftName || "").trim();
+  if (!name) {
+    setCreateStatus("请先输入项目名称", true);
+    projectNameInput?.focus();
+    return;
+  }
+
   try {
     const rootDir = await invoke("rag_pick_folder");
     if (!rootDir) return;
+
+    createDraftRootDir = rootDir;
+    renderProjectDraft();
 
     const nextRoot = normalizeRootPath(rootDir);
     const exists = projects.find(
@@ -300,55 +525,10 @@ const pickProjectDirectory = async () => {
       return;
     }
 
-    pendingProjectDraft = {
-      rootDir,
-      projectName: basenameFromPath(rootDir),
-      submitting: false,
-    };
-    setCreateStatus("");
-    renderProjectDraft();
+    setCreateStatus("目录已选择，准备索引...");
+    await createProjectAndSyncFromSelection(name, rootDir);
   } catch (error) {
     setCreateStatus(`目录选择失败：${error}`, true);
-  }
-};
-
-const createProjectAndSync = async () => {
-  if (!pendingProjectDraft || pendingProjectDraft.submitting) return;
-
-  const projectName = (projectNameInput?.value || "").trim() || basenameFromPath(pendingProjectDraft.rootDir);
-  pendingProjectDraft.projectName = projectName;
-  pendingProjectDraft.submitting = true;
-  renderProjectDraft();
-  setCreateStatus("正在创建项目并执行首次索引...");
-
-  try {
-    const created = await invoke("rag_project_create", {
-      request: {
-        project_name: projectName,
-        root_dir: pendingProjectDraft.rootDir,
-      },
-    });
-
-    const report = await invoke("rag_index_sync_project", {
-      request: {
-        project_id: created.project_id,
-        root_dir: created.root_dir,
-      },
-    });
-
-    pendingProjectDraft = null;
-    renderProjectDraft();
-    await loadProjects();
-    setCurrentProject(created);
-    setCreateStatus(`创建并索引完成：${formatIndexReport(report)}`);
-  } catch (error) {
-    if (String(error).includes("project root already exists")) {
-      setCreateStatus("该目录已存在项目", true);
-    } else {
-      setCreateStatus(`创建失败：${error}`, true);
-    }
-    pendingProjectDraft.submitting = false;
-    renderProjectDraft();
   }
 };
 
@@ -547,35 +727,45 @@ projectSettingsBtn?.addEventListener("click", () => {
 projectModalClose?.addEventListener("click", closeProjectModal);
 
 projectModal?.addEventListener("click", (event) => {
-  if (event.target === projectModal) {
+  if (event.target === projectModal && !progressRunning) {
     closeProjectModal();
   }
 });
 
 window.addEventListener("keydown", (event) => {
+  const progressVisible = projectProgressModal && !projectProgressModal.classList.contains("hidden");
+  if (event.key === "Escape" && progressVisible) {
+    event.preventDefault();
+    return;
+  }
   if (event.key === "Escape" && isProjectModalOpen) {
     closeProjectModal();
   }
 });
 
-projectPickDirBtn?.addEventListener("click", () => {
-  void pickProjectDirectory();
-});
-
-projectCreateConfirmBtn?.addEventListener("click", () => {
-  void createProjectAndSync();
-});
-
-projectCreateCancelBtn?.addEventListener("click", () => {
-  if (pendingProjectDraft?.submitting) return;
-  pendingProjectDraft = null;
-  renderProjectDraft();
-  setCreateStatus("");
+projectNewBtn?.addEventListener("click", () => {
+  if (createDraftBusy) return;
+  openCreateDraft();
 });
 
 projectNameInput?.addEventListener("input", () => {
-  if (!pendingProjectDraft || pendingProjectDraft.submitting) return;
-  pendingProjectDraft.projectName = projectNameInput.value;
+  createDraftName = projectNameInput.value;
+  if (createDraftName.trim()) {
+    setCreateStatus("");
+  }
+  renderProjectDraft();
+});
+
+projectChooseDirBtn?.addEventListener("click", () => {
+  void chooseDirectoryAndStart();
+});
+
+projectCreateCancelBtn?.addEventListener("click", () => {
+  closeCreateDraft();
+});
+
+projectProgressDoneBtn?.addEventListener("click", () => {
+  closeProgressModal();
 });
 
 const savedProjectId = localStorage.getItem(SELECTED_PROJECT_STORAGE_KEY);
@@ -586,6 +776,7 @@ if (savedProjectId) {
 updateCurrentProjectLabel();
 loadAsrSettings();
 void loadProjects();
+renderProjectDraft();
 
 if (urlInput) {
   urlInput.value = meetingUrlDefault;

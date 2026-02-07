@@ -151,6 +151,13 @@ button.secondary {
   border-color: #1f1b16;
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+  transform: none;
+  box-shadow: none;
+}
+
 .group {
   display: flex;
   gap: 8px;
@@ -296,6 +303,10 @@ button.secondary {
   padding: 8px 10px;
   font-size: 0.86rem;
   word-break: break-all;
+  min-height: 38px;
+  display: flex;
+  align-items: center;
+  flex: 1;
 }
 
 .project-list-section {
@@ -389,6 +400,112 @@ button.secondary {
   border-top-color: var(--accent);
   animation: spin 0.7s linear infinite;
   vertical-align: -1px;
+}
+
+.project-progress-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 12, 9, 0.62);
+  z-index: 140;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.project-progress-modal {
+  width: min(720px, 100%);
+  max-height: 90vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border-radius: 16px;
+  border: 1px solid var(--border);
+  box-shadow: var(--shadow);
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.project-progress-modal h3 {
+  margin: 0;
+}
+
+.project-progress-line {
+  display: flex;
+  justify-content: flex-end;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.project-progress-bar {
+  width: 100%;
+  height: 12px;
+  background: #efe8dd;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.project-progress-fill {
+  height: 100%;
+  width: 0%;
+  background: linear-gradient(90deg, #da5a34, #f29b65);
+  transition: width 0.25s ease;
+}
+
+.project-progress-path {
+  font-size: 0.85rem;
+  color: var(--ink);
+  background: #f6f1e9;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 8px 10px;
+  word-break: break-all;
+}
+
+.project-progress-logs-wrap {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: #faf7f2;
+}
+
+.project-progress-logs-wrap summary {
+  cursor: pointer;
+  padding: 8px 10px;
+  font-size: 0.88rem;
+  color: var(--muted);
+}
+
+.project-progress-logs {
+  max-height: 180px;
+  overflow-y: auto;
+  border-top: 1px solid var(--border);
+  padding: 8px 10px;
+  font-size: 0.8rem;
+  font-family: "IBM Plex Mono", monospace;
+  white-space: pre-wrap;
+  color: #41372f;
+}
+
+.project-progress-skipped {
+  border: 1px dashed var(--border);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.project-progress-skipped summary {
+  cursor: pointer;
+  padding: 8px 10px;
+  font-size: 0.88rem;
+}
+
+.project-progress-skipped-list {
+  padding: 8px 10px;
+  border-top: 1px dashed var(--border);
+  font-size: 0.82rem;
+  color: var(--muted);
+  display: grid;
+  gap: 6px;
 }
 
 @keyframes spin {
