@@ -55,6 +55,29 @@ struct LlmRequest {
   prompt: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct RagAskRequest {
+  query: String,
+  project_ids: Vec<String>,
+  top_k: Option<usize>,
+}
+
+#[derive(Debug, Serialize)]
+struct RagAnswerReference {
+  index: usize,
+  score: f32,
+  file_path: String,
+  chunk_id: String,
+  snippet: String,
+}
+
+#[derive(Debug, Serialize)]
+struct RagAnswerResponse {
+  provider: String,
+  answer: String,
+  references: Vec<RagAnswerReference>,
+}
+
 #[derive(Debug, Serialize, Clone)]
 struct LiveTranslationStart {
   id: String,
@@ -374,6 +397,86 @@ async fn llm_generate(request: LlmRequest) -> Result<String, String> {
     "ollama" => call_ollama(request).await,
     _ => Err(format!("unknown provider: {}", provider)),
   }
+}
+
+#[tauri::command]
+async fn rag_ask_with_provider(
+  app: AppHandle,
+  rag_state: State<'_, Arc<RagState>>,
+  provider_state: State<'_, TranslateProviderState>,
+  request: RagAskRequest,
+) -> Result<RagAnswerResponse, String> {
+  let query = request.query.trim().to_string();
+  if query.is_empty() {
+    return Err("query is empty".to_string());
+  }
+  if request.project_ids.is_empty() {
+    return Err("project_ids is empty".to_string());
+  }
+  let top_k = request.top_k.unwrap_or(8).clamp(1, 20);
+  let provider = provider_state
+    .provider
+    .lock()
+    .map(|value| normalize_translate_provider(&value))
+    .unwrap_or_else(|_| "ollama".to_string());
+
+  let state = rag_state.inner().clone();
+  let app_handle = app.clone();
+  let search_query = query.clone();
+  let project_ids = request.project_ids;
+  let hits = tauri::async_runtime::spawn_blocking(move || {
+    state.with_service(&app_handle, |service| service.search(&search_query, project_ids, top_k))
+  })
+  .await
+  .map_err(|err| err.to_string())??;
+
+  let context = if hits.is_empty() {
+    "No relevant context found in local project index.".to_string()
+  } else {
+    hits
+      .iter()
+      .enumerate()
+      .map(|(index, hit)| {
+        format!(
+          "[{index}] score={score:.4} file={file_path} chunk={chunk_id}\n{text}",
+          index = index + 1,
+          score = hit.score,
+          file_path = hit.file_path,
+          chunk_id = hit.chunk_id,
+          text = hit.text
+        )
+      })
+      .collect::<Vec<_>>()
+      .join("\n\n")
+  };
+
+  let prompt = format!(
+    "你是项目代码/文档问答助手。请仅基于给定上下文回答问题。\n\
+如果上下文不足，请明确说“根据当前检索结果无法确定”。\n\
+回答要简洁，并在关键结论后用 [n] 标注来源编号。\n\n\
+问题:\n{query}\n\n\
+上下文:\n{context}"
+  );
+
+  let config = load_config()?;
+  let answer = generate_with_selected_provider(&provider, &prompt, &config).await?;
+  let references = hits
+    .iter()
+    .enumerate()
+    .map(|(index, hit)| RagAnswerReference {
+      index: index + 1,
+      score: hit.score,
+      file_path: hit.file_path.clone(),
+      chunk_id: hit.chunk_id.clone(),
+      snippet: compact_text(&hit.text, 240),
+    })
+    .collect();
+
+  Ok(RagAnswerResponse {
+    provider,
+    answer,
+    references,
+  })
 }
 
 #[tauri::command]
@@ -830,6 +933,165 @@ async fn call_ollama(request: LlmRequest) -> Result<String, String> {
     .ok_or_else(|| "Ollama response missing content".to_string())
 }
 
+fn compact_text(input: &str, max_chars: usize) -> String {
+  let compact = input.split_whitespace().collect::<Vec<_>>().join(" ");
+  let mut output = compact.chars().take(max_chars).collect::<String>();
+  if compact.chars().count() > max_chars {
+    output.push_str("...");
+  }
+  output
+}
+
+async fn generate_with_selected_provider(
+  provider: &str,
+  prompt: &str,
+  config: &app_config::AppConfig,
+) -> Result<String, String> {
+  match provider {
+    "openai" => generate_with_openai(prompt, config).await,
+    _ => generate_with_ollama(prompt, config).await,
+  }
+}
+
+async fn generate_with_openai(
+  prompt: &str,
+  config: &app_config::AppConfig,
+) -> Result<String, String> {
+  let openai = &config.openai;
+  let api_key = openai.api_key.trim();
+  if api_key.is_empty() {
+    return Err("OpenAI apiKey is required".to_string());
+  }
+  let model = openai
+    .chat_model
+    .clone()
+    .filter(|value| !value.trim().is_empty())
+    .unwrap_or_else(|| DEFAULT_OPENAI_CHAT_MODEL.to_string());
+  let base_url = openai
+    .chat_base_url
+    .clone()
+    .filter(|value| !value.trim().is_empty())
+    .unwrap_or_else(|| DEFAULT_OPENAI_CHAT_BASE_URL.to_string());
+  let timeout_secs = openai.chat_timeout_secs.unwrap_or(DEFAULT_OPENAI_CHAT_TIMEOUT);
+
+  let body = serde_json::json!({
+    "model": model,
+    "input": [
+      {
+        "role": "system",
+        "content": [{"type": "input_text", "text": "Answer using provided context and cite sources as [n]."}]
+      },
+      {
+        "role": "user",
+        "content": [{"type": "input_text", "text": prompt}]
+      }
+    ],
+    "temperature": 0.2
+  });
+
+  let client = reqwest::Client::builder()
+    .timeout(Duration::from_secs(timeout_secs))
+    .build()
+    .map_err(|err| err.to_string())?;
+  let response = client
+    .post(base_url.trim_end_matches('/'))
+    .bearer_auth(api_key)
+    .json(&body)
+    .send()
+    .await
+    .map_err(|err| err.to_string())?;
+
+  let status = response.status();
+  let value: serde_json::Value = response.json().await.map_err(|err| err.to_string())?;
+  if !status.is_success() {
+    return Err(value.to_string());
+  }
+
+  extract_openai_response_text(&value).ok_or_else(|| "OpenAI response missing text".to_string())
+}
+
+fn extract_openai_response_text(value: &serde_json::Value) -> Option<String> {
+  if let Some(text) = value.get("output_text").and_then(|field| field.as_str()) {
+    let trimmed = text.trim();
+    if !trimmed.is_empty() {
+      return Some(trimmed.to_string());
+    }
+  }
+  if let Some(output) = value.get("output").and_then(|field| field.as_array()) {
+    for item in output {
+      if let Some(content) = item.get("content").and_then(|field| field.as_array()) {
+        for part in content {
+          if part.get("type").and_then(|t| t.as_str()) == Some("output_text") {
+            if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+              let trimmed = text.trim();
+              if !trimmed.is_empty() {
+                return Some(trimmed.to_string());
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+  None
+}
+
+async fn generate_with_ollama(
+  prompt: &str,
+  config: &app_config::AppConfig,
+) -> Result<String, String> {
+  let ollama = config.ollama.clone().unwrap_or_else(|| OllamaConfig {
+    enabled: Some(true),
+    model: Some(DEFAULT_OLLAMA_MODEL.to_string()),
+    base_url: Some(DEFAULT_OLLAMA_BASE_URL.to_string()),
+    timeout_secs: Some(DEFAULT_OLLAMA_TIMEOUT),
+  });
+
+  if ollama.enabled == Some(false) {
+    return Err("ollama disabled".to_string());
+  }
+  let model = ollama
+    .model
+    .filter(|value| !value.trim().is_empty())
+    .unwrap_or_else(|| DEFAULT_OLLAMA_MODEL.to_string());
+  let base_url = ollama
+    .base_url
+    .filter(|value| !value.trim().is_empty())
+    .unwrap_or_else(|| DEFAULT_OLLAMA_BASE_URL.to_string());
+  let timeout_secs = ollama.timeout_secs.unwrap_or(DEFAULT_OLLAMA_TIMEOUT);
+  let url = format!("{}/api/generate", base_url.trim_end_matches('/'));
+
+  let body = serde_json::json!({
+    "model": model,
+    "prompt": prompt,
+    "stream": false
+  });
+
+  let client = reqwest::Client::builder()
+    .timeout(Duration::from_secs(timeout_secs))
+    .build()
+    .map_err(|err| err.to_string())?;
+  let response = client
+    .post(url)
+    .json(&body)
+    .send()
+    .await
+    .map_err(|err| err.to_string())?;
+
+  let status = response.status();
+  let value: serde_json::Value = response.json().await.map_err(|err| err.to_string())?;
+  if !status.is_success() {
+    return Err(value.to_string());
+  }
+
+  value
+    .get("response")
+    .and_then(|field| field.as_str())
+    .map(|text| text.trim().to_string())
+    .filter(|text| !text.is_empty())
+    .ok_or_else(|| "Ollama response missing content".to_string())
+}
+
 #[tauri::command]
 async fn start_loopback_capture(
   app: AppHandle,
@@ -1062,6 +1324,7 @@ fn main() {
       set_translate_provider,
       log_live_line,
       emit_live_draft,
+      rag_ask_with_provider,
       rag_index_add_files,
       rag_index_sync_project,
       rag_index_remove_files,

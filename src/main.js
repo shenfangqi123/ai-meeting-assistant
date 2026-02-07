@@ -238,31 +238,43 @@ const runRagSearch = async () => {
   if (ragSearchAskBtn) {
     ragSearchAskBtn.disabled = true;
   }
+  appendRagOutput("---------------------------------");
   appendRagOutput(`> query: ${query}`);
 
   try {
-    const response = await invoke("rag_search", {
+    const response = await invoke("rag_ask_with_provider", {
       request: {
         query,
         project_ids: [project.project_id],
         top_k: 8,
       },
     });
-    const hits = Array.isArray(response?.hits) ? response.hits : [];
-    if (!hits.length) {
+    const provider = String(response?.provider || currentTranslateProvider || "ollama");
+    const answer = String(response?.answer || "").trim();
+    const references = Array.isArray(response?.references) ? response.references : [];
+
+    appendRagOutput(`provider: ${provider}`);
+    appendRagOutput("");
+    appendRagOutput("LLM answer:");
+    appendRagOutput(answer || "(empty)");
+    appendRagOutput("");
+    appendRagOutput(`references: ${references.length}`);
+
+    if (!references.length) {
       appendRagOutput("no hits");
-      return;
-    }
-    for (let i = 0; i < hits.length; i += 1) {
-      const hit = hits[i];
-      const score = Number(hit.score ?? 0).toFixed(4);
-      const text = String(hit.text || "").replace(/\s+/g, " ").slice(0, 220);
-      appendRagOutput(`[${i + 1}] score=${score} file=${hit.file_path || ""} chunk=${hit.chunk_id || ""}`);
-      appendRagOutput(`     hit=${text}`);
+    } else {
+      for (const reference of references) {
+        const score = Number(reference.score ?? 0).toFixed(4);
+        appendRagOutput(
+          `[${reference.index || 0}] score=${score} file=${reference.file_path || ""} chunk=${reference.chunk_id || ""}`
+        );
+        appendRagOutput(`     hit=${reference.snippet || ""}`);
+      }
     }
   } catch (error) {
     appendRagOutput(`error: ${error}`);
   } finally {
+    appendRagOutput("---------------------------------");
     ragSearchRunning = false;
     if (ragSearchAskBtn) {
       ragSearchAskBtn.disabled = false;
