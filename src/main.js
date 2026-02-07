@@ -1,4 +1,4 @@
-import { invoke } from "@tauri-apps/api/core";
+﻿import { invoke } from "@tauri-apps/api/core";
 
 const meetingUrlDefault = "https://zoom.us/signin";
 const SELECTED_PROJECT_STORAGE_KEY = "rag_selected_project_id";
@@ -116,10 +116,10 @@ const updateCaptureUi = (active) => {
 const updateCurrentProjectLabel = () => {
   if (!currentProjectLabel) return;
   if (!selectedProjectIds.length || !selectedProjectName) {
-    currentProjectLabel.textContent = "当前项目：未选择";
+    currentProjectLabel.textContent = "褰撳墠椤圭洰锛氭湭閫夋嫨";
     return;
   }
-  currentProjectLabel.textContent = `当前项目：${selectedProjectName}`;
+  currentProjectLabel.textContent = `褰撳墠椤圭洰锛?{selectedProjectName}`;
 };
 
 const setCreateStatus = (text, isError = false) => {
@@ -184,14 +184,17 @@ const openRagSearchModal = () => {
   if (!ragSearchModal) return;
   const project = getSelectedProject();
   if (!project) {
-    window.alert("请先选择项目");
+    window.alert("Please select a project first");
     return;
   }
+  void invoke("set_top_height", { height: PROJECT_MODAL_EXPANDED_HEIGHT }).catch((error) => {
+    logError(`expand top error: ${error}`);
+  });
   ragSearchModalOpen = true;
   ragSearchModal.classList.remove("hidden");
   ragSearchModal.setAttribute("aria-hidden", "false");
   if (ragSearchProjectInfo) {
-    ragSearchProjectInfo.textContent = `当前项目：${project.project_name} (${project.project_id})`;
+    ragSearchProjectInfo.textContent = `当前项目: ${project.project_name} (${project.project_id})`;
   }
   if (ragSearchOutput) {
     ragSearchOutput.textContent = "";
@@ -204,13 +207,16 @@ const closeRagSearchModal = () => {
   ragSearchModalOpen = false;
   ragSearchModal.classList.add("hidden");
   ragSearchModal.setAttribute("aria-hidden", "true");
+  void invoke("set_top_height", { height: PROJECT_MODAL_COLLAPSED_HEIGHT }).catch((error) => {
+    logError(`collapse top error: ${error}`);
+  });
 };
 
 const runRagSearch = async () => {
   if (ragSearchRunning) return;
   const project = getSelectedProject();
   if (!project) {
-    window.alert("请先选择项目");
+    window.alert("璇峰厛閫夋嫨椤圭洰");
     return;
   }
   const query = (ragSearchPrompt?.value || "").trim();
@@ -299,7 +305,7 @@ const renderProjectDraft = () => {
   if (!isCreateDraftOpen) {
     projectDraft.classList.add("hidden");
     projectNameInput.value = "";
-    projectRootPath.textContent = "未选择";
+    projectRootPath.textContent = "鏈€夋嫨";
     projectChooseDirBtn.disabled = true;
     projectNewBtn.disabled = false;
     return;
@@ -308,7 +314,7 @@ const renderProjectDraft = () => {
   projectDraft.classList.remove("hidden");
   projectNameInput.value = createDraftName;
   projectNameInput.disabled = createDraftBusy;
-  projectRootPath.textContent = createDraftRootDir || "未选择";
+  projectRootPath.textContent = createDraftRootDir || "鏈€夋嫨";
   projectNewBtn.disabled = createDraftBusy;
 
   const hasValidName = createDraftName.trim().length > 0;
@@ -376,7 +382,7 @@ const openProgressModal = ({ projectName, rootDir }) => {
     projectProgressMetrics.textContent = "";
   }
   if (projectProgressPath) {
-    projectProgressPath.textContent = `项目：${projectName} | 目录：${rootDir}`;
+    projectProgressPath.textContent = `椤圭洰锛?{projectName} | 鐩綍锛?{rootDir}`;
   }
   if (projectProgressSkippedWrap) {
     projectProgressSkippedWrap.classList.add("hidden");
@@ -388,8 +394,8 @@ const openProgressModal = ({ projectName, rootDir }) => {
     projectProgressLogs.textContent = "";
   }
 
-  setProgress(0, "准备开始...");
-  addProgressLog("开始创建项目");
+  setProgress(0, "鍑嗗寮€濮?..");
+  addProgressLog("寮€濮嬪垱寤洪」鐩?);
 };
 
 const startFakeProgress = () => {
@@ -412,7 +418,7 @@ const stopFakeProgress = () => {
 const showProgressResult = (report) => {
   progressRunning = false;
   stopFakeProgress();
-  setProgress(100, "索引完成");
+  setProgress(100, "绱㈠紩瀹屾垚");
 
   const skipped = Array.isArray(report?.skipped_files) ? report.skipped_files : [];
   if (projectProgressMetrics) {
@@ -431,7 +437,7 @@ const showProgressResult = (report) => {
     }
   }
 
-  addProgressLog("索引完成");
+  addProgressLog("绱㈠紩瀹屾垚");
   if (projectProgressDoneBtn) {
     projectProgressDoneBtn.classList.remove("hidden");
   }
@@ -441,13 +447,13 @@ const showProgressError = (error) => {
   progressRunning = false;
   stopFakeProgress();
   if (projectProgressText) {
-    projectProgressText.textContent = "索引失败";
+    projectProgressText.textContent = "绱㈠紩澶辫触";
   }
   if (projectProgressMetrics) {
     projectProgressMetrics.textContent = String(error);
     projectProgressMetrics.style.color = "#b64422";
   }
-  addProgressLog(`失败：${error}`);
+  addProgressLog(`澶辫触锛?{error}`);
   if (projectProgressDoneBtn) {
     projectProgressDoneBtn.classList.remove("hidden");
   }
@@ -469,7 +475,7 @@ const renderProjectList = () => {
   if (!projects.length) {
     const empty = document.createElement("div");
     empty.className = "project-empty";
-    empty.textContent = "暂无项目，点击“新建项目”开始。";
+    empty.textContent = "鏆傛棤椤圭洰锛岀偣鍑烩€滄柊寤洪」鐩€濆紑濮嬨€?;
     projectList.appendChild(empty);
     return;
   }
@@ -483,13 +489,13 @@ const renderProjectList = () => {
 
     const name = document.createElement("span");
     name.className = "project-row-name";
-    name.textContent = project.project_name || "未命名项目";
+    name.textContent = project.project_name || "鏈懡鍚嶉」鐩?;
     head.appendChild(name);
 
     if (selectedProjectIds.includes(project.project_id)) {
       const tag = document.createElement("span");
       tag.className = "project-row-tag";
-      tag.textContent = "当前项目";
+      tag.textContent = "褰撳墠椤圭洰";
       head.appendChild(tag);
     }
 
@@ -509,7 +515,7 @@ const renderProjectList = () => {
 
     const showBtn = document.createElement("button");
     showBtn.type = "button";
-    showBtn.textContent = "显示";
+    showBtn.textContent = "鏄剧ず";
     showBtn.disabled = isBusy;
     showBtn.addEventListener("click", () => {
       setCurrentProject(project);
@@ -518,7 +524,7 @@ const renderProjectList = () => {
 
     const syncBtn = document.createElement("button");
     syncBtn.type = "button";
-    syncBtn.textContent = "更新";
+    syncBtn.textContent = "鏇存柊";
     syncBtn.disabled = isBusy;
     syncBtn.addEventListener("click", () => {
       void updateProject(project);
@@ -526,7 +532,7 @@ const renderProjectList = () => {
 
     const deleteBtn = document.createElement("button");
     deleteBtn.type = "button";
-    deleteBtn.textContent = "删除";
+    deleteBtn.textContent = "鍒犻櫎";
     deleteBtn.disabled = isBusy;
     deleteBtn.addEventListener("click", () => {
       void deleteProject(project);
@@ -557,7 +563,7 @@ const loadProjects = async () => {
     renderProjectList();
   } catch (error) {
     logError(`project list error: ${error}`);
-    setCreateStatus(`项目列表读取失败：${error}`, true);
+    setCreateStatus(`椤圭洰鍒楄〃璇诲彇澶辫触锛?{error}`, true);
   }
 };
 
@@ -588,12 +594,12 @@ const closeProjectModal = () => {
 const createProjectAndSyncFromSelection = async (projectName, rootDir) => {
   createDraftBusy = true;
   renderProjectDraft();
-  setCreateStatus("目录已选择，开始创建并索引...");
+  setCreateStatus("鐩綍宸查€夋嫨锛屽紑濮嬪垱寤哄苟绱㈠紩...");
 
   openProgressModal({ projectName, rootDir });
   startFakeProgress();
-  setProgress(10, "创建项目记录...");
-  addProgressLog("正在创建项目配置");
+  setProgress(10, "鍒涘缓椤圭洰璁板綍...");
+  addProgressLog("姝ｅ湪鍒涘缓椤圭洰閰嶇疆");
 
   try {
     const created = await invoke("rag_project_create", {
@@ -603,8 +609,8 @@ const createProjectAndSyncFromSelection = async (projectName, rootDir) => {
       },
     });
 
-    setProgress(25, "开始扫描并索引...");
-    addProgressLog("开始执行增量同步");
+    setProgress(25, "寮€濮嬫壂鎻忓苟绱㈠紩...");
+    addProgressLog("寮€濮嬫墽琛屽閲忓悓姝?);
 
     const report = await invoke("rag_index_sync_project", {
       request: {
@@ -620,15 +626,15 @@ const createProjectAndSyncFromSelection = async (projectName, rootDir) => {
     createDraftRootDir = "";
     createDraftBusy = false;
     renderProjectDraft();
-    setCreateStatus("创建成功，索引已完成。");
+    setCreateStatus("鍒涘缓鎴愬姛锛岀储寮曞凡瀹屾垚銆?);
     showProgressResult(report);
   } catch (error) {
     createDraftBusy = false;
     renderProjectDraft();
     if (String(error).includes("project root already exists")) {
-      setCreateStatus("该目录已存在项目", true);
+      setCreateStatus("璇ョ洰褰曞凡瀛樺湪椤圭洰", true);
     } else {
-      setCreateStatus(`创建失败：${error}`, true);
+      setCreateStatus(`鍒涘缓澶辫触锛?{error}`, true);
     }
     showProgressError(error);
   }
@@ -637,7 +643,7 @@ const createProjectAndSyncFromSelection = async (projectName, rootDir) => {
 const chooseDirectoryAndStart = async () => {
   const name = (createDraftName || "").trim();
   if (!name) {
-    setCreateStatus("请先输入项目名称", true);
+    setCreateStatus("璇峰厛杈撳叆椤圭洰鍚嶇О", true);
     projectNameInput?.focus();
     return;
   }
@@ -654,20 +660,20 @@ const chooseDirectoryAndStart = async () => {
       (project) => normalizeRootPath(project.root_dir) === nextRoot
     );
     if (exists) {
-      setCreateStatus("该目录已存在项目", true);
+      setCreateStatus("璇ョ洰褰曞凡瀛樺湪椤圭洰", true);
       return;
     }
 
-    setCreateStatus("目录已选择，准备索引...");
+    setCreateStatus("鐩綍宸查€夋嫨锛屽噯澶囩储寮?..");
     await createProjectAndSyncFromSelection(name, rootDir);
   } catch (error) {
-    setCreateStatus(`目录选择失败：${error}`, true);
+    setCreateStatus(`鐩綍閫夋嫨澶辫触锛?{error}`, true);
   }
 };
 
 const updateProject = async (project) => {
   if (!project || projectActionMap.has(project.project_id)) return;
-  setProjectAction(project.project_id, "更新中");
+  setProjectAction(project.project_id, "鏇存柊涓?);
   try {
     const report = await invoke("rag_index_sync_project", {
       request: {
@@ -675,9 +681,9 @@ const updateProject = async (project) => {
         root_dir: project.root_dir,
       },
     });
-    window.alert(`项目更新完成\n${formatIndexReport(report)}`);
+    window.alert(`椤圭洰鏇存柊瀹屾垚\n${formatIndexReport(report)}`);
   } catch (error) {
-    window.alert(`项目更新失败：${error}`);
+    window.alert(`椤圭洰鏇存柊澶辫触锛?{error}`);
   } finally {
     setProjectAction(project.project_id, "");
   }
@@ -686,11 +692,11 @@ const updateProject = async (project) => {
 const deleteProject = async (project) => {
   if (!project || projectActionMap.has(project.project_id)) return;
   const confirmed = window.confirm(
-    "将移除该项目在向量库中的索引数据（chunks/manifest），不会删除磁盘上的文件。是否继续？"
+    "灏嗙Щ闄よ椤圭洰鍦ㄥ悜閲忓簱涓殑绱㈠紩鏁版嵁锛坈hunks/manifest锛夛紝涓嶄細鍒犻櫎纾佺洏涓婄殑鏂囦欢銆傛槸鍚︾户缁紵"
   );
   if (!confirmed) return;
 
-  setProjectAction(project.project_id, "删除中");
+  setProjectAction(project.project_id, "鍒犻櫎涓?);
   try {
     const report = await invoke("rag_project_delete", {
       request: { project_id: project.project_id },
@@ -700,10 +706,10 @@ const deleteProject = async (project) => {
       setCurrentProject(null);
     }
     window.alert(
-      `项目已删除\ndeleted_files=${report.deleted_files ?? 0}, deleted_chunks=${report.deleted_chunks ?? 0}`
+      `椤圭洰宸插垹闄ndeleted_files=${report.deleted_files ?? 0}, deleted_chunks=${report.deleted_chunks ?? 0}`
     );
   } catch (error) {
-    window.alert(`删除失败：${error}`);
+    window.alert(`鍒犻櫎澶辫触锛?{error}`);
   } finally {
     setProjectAction(project.project_id, "");
   }
@@ -951,3 +957,6 @@ renderProjectDraft();
 if (urlInput) {
   urlInput.value = meetingUrlDefault;
 }
+
+
+
