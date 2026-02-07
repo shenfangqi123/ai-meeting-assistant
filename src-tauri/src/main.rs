@@ -92,6 +92,10 @@ struct LayoutState {
   bottom_ratio: Mutex<Option<f64>>,
 }
 
+struct TranslateProviderState {
+  provider: Mutex<String>,
+}
+
 struct Layout {
   width: f64,
   top_height: f64,
@@ -924,6 +928,29 @@ fn set_asr_language(state: State<'_, AsrState>, language: String) -> Result<Stri
 }
 
 #[tauri::command]
+fn get_translate_provider(state: State<'_, TranslateProviderState>) -> String {
+  state
+    .provider
+    .lock()
+    .map(|provider| provider.clone())
+    .unwrap_or_else(|_| "ollama".to_string())
+}
+
+#[tauri::command]
+fn set_translate_provider(
+  state: State<'_, TranslateProviderState>,
+  provider: String,
+) -> Result<String, String> {
+  let normalized = normalize_translate_provider(&provider);
+  let mut guard = state
+    .provider
+    .lock()
+    .map_err(|_| "translate provider state poisoned".to_string())?;
+  *guard = normalized.clone();
+  Ok(normalized)
+}
+
+#[tauri::command]
 fn log_live_line(index: u64, line: String) {
   println!("[live {index}] {line}");
 }
@@ -935,10 +962,17 @@ fn emit_live_draft(app: AppHandle, text: String) {
 
 fn main() {
   let asr_state = AsrState::new();
+  let initial_translate_provider = load_config()
+    .ok()
+    .and_then(|cfg| cfg.translate.and_then(|translate| translate.provider))
+    .unwrap_or_else(|| "ollama".to_string());
   tauri::Builder::default()
     .manage(LayoutState {
       top_height: Mutex::new(None),
       bottom_ratio: Mutex::new(None),
+    })
+    .manage(TranslateProviderState {
+      provider: Mutex::new(normalize_translate_provider(&initial_translate_provider)),
     })
     .manage(CaptureManager::new())
     .manage(WhisperServerManager::new())
@@ -1024,6 +1058,8 @@ fn main() {
       set_asr_provider,
       set_asr_fallback,
       set_asr_language,
+      get_translate_provider,
+      set_translate_provider,
       log_live_line,
       emit_live_draft,
       rag_index_add_files,
@@ -1049,4 +1085,11 @@ fn should_start_whisper_server(config: &app_config::AsrConfig) -> bool {
     provider.as_str(),
     "whisperserver" | "whisper-server" | "whisper_server" | "server"
   )
+}
+
+fn normalize_translate_provider(provider: &str) -> String {
+  match provider.trim().to_lowercase().as_str() {
+    "openai" | "chatgpt" => "openai".to_string(),
+    _ => "ollama".to_string(),
+  }
 }

@@ -9,6 +9,7 @@ const urlInput = document.getElementById("urlInput");
 const loadBtn = document.getElementById("loadBtn");
 const introBtn = document.getElementById("introBtn");
 const asrProviderToggle = document.getElementById("asrProviderToggle");
+const translateProviderToggle = document.getElementById("translateProviderToggle");
 const asrFallbackToggle = document.getElementById("asrFallbackToggle");
 const asrLanguageSelect = document.getElementById("asrLanguage");
 const asrStart = document.getElementById("asrStart");
@@ -54,6 +55,7 @@ let pendingResize = null;
 let resizeFrame = null;
 let isCapturing = false;
 let currentAsrProvider = "whisperserver";
+let currentTranslateProvider = "ollama";
 let selectedProjectIds = [];
 let selectedProjectName = "";
 let projects = [];
@@ -101,6 +103,13 @@ const updateAsrUi = () => {
   asrProviderToggle.dataset.provider = currentAsrProvider;
   asrProviderToggle.textContent =
     currentAsrProvider === "openai" ? "OpenAI" : "Whisper Server";
+};
+
+const updateTranslateProviderUi = () => {
+  if (!translateProviderToggle) return;
+  translateProviderToggle.dataset.provider = currentTranslateProvider;
+  translateProviderToggle.textContent =
+    currentTranslateProvider === "openai" ? "ChatGPT" : "Ollama";
 };
 
 const updateCaptureUi = (active) => {
@@ -735,6 +744,20 @@ const loadAsrSettings = async () => {
   }
 };
 
+const loadTranslateProvider = async () => {
+  if (!translateProviderToggle) return;
+  try {
+    const provider = await invoke("get_translate_provider");
+    if (provider) {
+      currentTranslateProvider = provider;
+    }
+  } catch (error) {
+    logError(`translate provider load error: ${error}`);
+  } finally {
+    updateTranslateProviderUi();
+  }
+};
+
 const scheduleResize = (height) => {
   pendingResize = height;
   if (resizeFrame) return;
@@ -837,6 +860,17 @@ asrProviderToggle?.addEventListener("click", async () => {
     updateAsrUi();
   } catch (error) {
     logError(`asr provider error: ${error}`);
+  }
+});
+
+translateProviderToggle?.addEventListener("click", async () => {
+  const next = currentTranslateProvider === "ollama" ? "openai" : "ollama";
+  try {
+    const updated = await invoke("set_translate_provider", { provider: next });
+    currentTranslateProvider = updated || next;
+    updateTranslateProviderUi();
+  } catch (error) {
+    logError(`translate provider error: ${error}`);
   }
 });
 
@@ -951,6 +985,7 @@ if (savedProjectId) {
 
 updateCurrentProjectLabel();
 loadAsrSettings();
+loadTranslateProvider();
 void loadProjects();
 renderProjectDraft();
 

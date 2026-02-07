@@ -11,23 +11,20 @@ const livePartialEl = document.getElementById("livePartial");
 const liveMetaEl = document.getElementById("liveMeta");
 const liveSpeakerEl = document.getElementById("liveSpeaker");
 
-const providerToggle = document.getElementById("providerToggle");
 const translateToggle = document.getElementById("translateToggle");
-let currentProvider = "ollama";
 let translateEnabled = false;
 
-const updateProviderUi = () => {
-  if (!providerToggle) return;
-  providerToggle.dataset.provider = currentProvider;
-  providerToggle.textContent = currentProvider === "ollama" ? "Ollama" : "ChatGPT";
+const getTranslateProvider = async () => {
+  try {
+    const provider = await invoke("get_translate_provider");
+    if (provider === "openai" || provider === "ollama") {
+      return provider;
+    }
+  } catch (_) {
+    // Fallback to ollama if provider state is unavailable.
+  }
+  return "ollama";
 };
-
-providerToggle?.addEventListener("click", () => {
-  currentProvider = currentProvider === "ollama" ? "openai" : "ollama";
-  updateProviderUi();
-});
-
-updateProviderUi();
 
 const updateTranslateUi = () => {
   if (translateToggle) {
@@ -327,9 +324,10 @@ const translateLiveFinal = async (info) => {
   if (liveTranslated.has(id)) return;
   liveTranslated.add(id);
   try {
+    const provider = await getTranslateProvider();
     await invoke("translate_live", {
       text,
-      provider: currentProvider,
+      provider,
       name: id,
       order,
     });
@@ -556,7 +554,8 @@ const translateSegment = async (info, row) => {
     translation.dataset.state = "pending";
   }
   try {
-    await invoke("translate_segment", { name: info.name, provider: currentProvider });
+    const provider = await getTranslateProvider();
+    await invoke("translate_segment", { name: info.name, provider });
   } catch (error) {
     console.warn("translate error", error);
     if (translation) {
