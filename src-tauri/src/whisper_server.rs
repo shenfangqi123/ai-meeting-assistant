@@ -213,6 +213,15 @@ fn spawn_server(
 
   let port = pick_port()?;
   let url = format!("http://127.0.0.1:{port}/inference");
+  let physical_cores = detect_physical_cores();
+  let threads = recommend_threads(device, physical_cores);
+  let mode = match device {
+    ServerDevice::Gpu => "GPU",
+    ServerDevice::Cpu => "CPU",
+  };
+  eprintln!(
+    "whisper-server threads auto-config: mode={mode}, physical_cores={physical_cores}, -t={threads}"
+  );
 
   let mut cmd = Command::new(exe);
   cmd
@@ -225,7 +234,7 @@ fn spawn_server(
     .arg("-m")
     .arg(model)
     .arg("-t")
-    .arg("8")
+    .arg(threads.to_string())
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
 
@@ -255,6 +264,40 @@ fn spawn_server(
     url,
     device,
   })
+}
+
+fn detect_physical_cores() -> usize {
+  let physical = num_cpus::get_physical();
+  if physical > 0 {
+    return physical;
+  }
+  num_cpus::get().max(1)
+}
+
+fn recommend_threads(device: ServerDevice, physical_cores: usize) -> usize {
+  match device {
+    ServerDevice::Gpu => match physical_cores {
+      0..=2 => 2,
+      3..=4 => 3,
+      5..=6 => 4,
+      7..=8 => 4,
+      9..=10 => 5,
+      11..=12 => 6,
+      13..=14 => 7,
+      15..=16 => 8,
+      17..=20 => 10,
+      _ => 12,
+    },
+    ServerDevice::Cpu => match physical_cores {
+      0..=2 => 2,
+      3..=4 => 3,
+      5..=6 => 5,
+      7..=8 => 7,
+      9..=12 => 10,
+      13..=16 => 14,
+      _ => 20,
+    },
+  }
 }
 
 fn spawn_reader<R: Read + Send + 'static>(reader: R, label: &'static str) {

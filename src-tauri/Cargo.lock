@@ -45,6 +45,7 @@ dependencies = [
  "hound",
  "lancedb",
  "ndarray",
+ "num_cpus",
  "once_cell",
  "ort",
  "reqwest",
