@@ -31,7 +31,7 @@
       .wrap {
         height: 100%;
         display: grid;
-        grid-template-rows: auto auto 1fr;
+        grid-template-rows: auto 1fr;
         gap: 12px;
         padding: 16px;
       }
@@ -70,19 +70,6 @@
         word-break: break-word;
       }
 
-      .draft-text {
-        font-size: 13px;
-        line-height: 1.6;
-        white-space: pre-wrap;
-        word-break: break-word;
-        color: var(--muted);
-      }
-
-      .draft-text[data-state="pending"] {
-        color: var(--muted);
-        font-style: italic;
-      }
-
       .translation-text[data-state="pending"] {
         color: var(--muted);
         font-style: italic;
@@ -98,10 +85,6 @@
       <header>
         <h1>Live Translation</h1>
       </header>
-      <section class="list" id="draftList">
-        <div class="empty" id="draftEmpty">Waiting for live draft...</div>
-        <div class="draft-text" id="draftText" data-state="pending"></div>
-      </section>
       <section class="list" id="translationList">
         <div class="empty" id="translationEmpty">Waiting for captions...</div>
         <div class="translation-text" id="translationText" data-state="pending"></div>

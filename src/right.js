@@ -3,8 +3,6 @@ import { listen } from "@tauri-apps/api/event";
 const listEl = document.getElementById("translationList");
 const emptyEl = document.getElementById("translationEmpty");
 const textEl = document.getElementById("translationText");
-const draftEmptyEl = document.getElementById("draftEmpty");
-const draftTextEl = document.getElementById("draftText");
 
 const pending = new Map();
 const orderQueue = [];
@@ -15,12 +13,6 @@ let fullText = "";
 const updateEmpty = () => {
   if (!emptyEl) return;
   emptyEl.style.display = fullText || streamingBuffer ? "none" : "block";
-};
-
-const updateDraftEmpty = () => {
-  if (!draftEmptyEl) return;
-  const text = draftTextEl?.textContent || "";
-  draftEmptyEl.style.display = text ? "none" : "block";
 };
 
 const appendChunk = (chunk) => {
@@ -138,15 +130,3 @@ listen("live_translation_cleared", () => {
   }
   updateEmpty();
 });
-
-listen("live_draft_update", (event) => {
-  const payload = event?.payload;
-  const text = typeof payload === "string" ? payload : payload?.text;
-  if (!draftTextEl) return;
-  const value = (text || "").toString();
-  draftTextEl.textContent = value;
-  draftTextEl.dataset.state = value ? "ready" : "pending";
-  updateDraftEmpty();
-});
-
-updateDraftEmpty();
