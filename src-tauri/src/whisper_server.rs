@@ -224,6 +224,8 @@ fn spawn_server(
     .arg("/inference")
     .arg("-m")
     .arg(model)
+    .arg("-t")
+    .arg("8")
     .stdout(Stdio::piped())
     .stderr(Stdio::piped());
 
