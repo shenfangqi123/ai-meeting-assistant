@@ -4,6 +4,7 @@ use std::collections::HashMap;
 pub trait RagStore: Send + Sync {
   fn add_chunks(&mut self, chunks: Vec<ChunkRecord>) -> Result<(), String>;
   fn delete_by_file(&mut self, project_id: &str, file_id: &str) -> Result<usize, String>;
+  fn delete_by_project(&mut self, project_id: &str) -> Result<(usize, usize), String>;
   fn search(
     &self,
     query_embedding: &[f32],
@@ -68,6 +69,17 @@ impl RagStore for MemoryStore {
     let before = self.chunks.len();
     self.chunks.retain(|chunk| !(chunk.project_id == project_id && chunk.file_id == file_id));
     Ok(before - self.chunks.len())
+  }
+
+  fn delete_by_project(&mut self, project_id: &str) -> Result<(usize, usize), String> {
+    let files_before = self.files.len();
+    self.files.retain(|(pid, _), _| pid != project_id);
+    let deleted_files = files_before.saturating_sub(self.files.len());
+
+    let chunks_before = self.chunks.len();
+    self.chunks.retain(|chunk| chunk.project_id != project_id);
+    let deleted_chunks = chunks_before.saturating_sub(self.chunks.len());
+    Ok((deleted_files, deleted_chunks))
   }
 
   fn search(

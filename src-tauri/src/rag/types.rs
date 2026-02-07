@@ -84,3 +84,34 @@ pub struct RagSearchRequest {
 pub struct RagSearchResponse {
   pub hits: Vec<ChunkHit>,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagProject {
+  pub project_id: String,
+  pub project_name: String,
+  pub root_dir: String,
+  pub updated_at: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagProjectListResponse {
+  pub projects: Vec<RagProject>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagProjectCreateRequest {
+  pub project_name: String,
+  pub root_dir: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagProjectDeleteRequest {
+  pub project_id: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RagProjectDeleteReport {
+  pub project_id: String,
+  pub deleted_files: usize,
+  pub deleted_chunks: usize,
+}

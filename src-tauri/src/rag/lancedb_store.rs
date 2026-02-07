@@ -68,6 +68,7 @@ impl RagStore for LanceDbStore {
       escape_literal(project_id),
       escape_literal(file_id)
     );
+    let deleted = tauri::async_runtime::block_on(async { count_rows(&self.chunks, Some(filter.clone())).await })?;
     tauri::async_runtime::block_on(async {
       self
         .chunks
@@ -75,7 +76,30 @@ impl RagStore for LanceDbStore {
         .await
         .map_err(|err| err.to_string())
     })?;
-    Ok(0)
+    Ok(deleted)
+  }
+
+  fn delete_by_project(&mut self, project_id: &str) -> Result<(usize, usize), String> {
+    let filter = format!("project_id = '{}'", escape_literal(project_id));
+    let deleted_files = tauri::async_runtime::block_on(async {
+      count_rows(&self.files, Some(filter.clone())).await
+    })?;
+    let deleted_chunks = tauri::async_runtime::block_on(async {
+      count_rows(&self.chunks, Some(filter.clone())).await
+    })?;
+    tauri::async_runtime::block_on(async {
+      self
+        .chunks
+        .delete(&filter)
+        .await
+        .map_err(|err| err.to_string())?;
+      self
+        .files
+        .delete(&filter)
+        .await
+        .map_err(|err| err.to_string())
+    })?;
+    Ok((deleted_files, deleted_chunks))
   }
 
   fn search(
@@ -518,4 +542,14 @@ fn build_project_filter(project_ids: &[String]) -> Option<String> {
 
 fn escape_literal(input: &str) -> String {
   input.replace('\'', "''")
+}
+
+async fn count_rows(table: &Table, filter: Option<String>) -> Result<usize, String> {
+  let mut query = table.query();
+  if let Some(filter) = filter {
+    query = query.only_if(filter);
+  }
+  let stream = query.execute().await.map_err(|err| err.to_string())?;
+  let batches: Vec<RecordBatch> = stream.try_collect().await.map_err(|err| err.to_string())?;
+  Ok(batches.iter().map(|batch| batch.num_rows()).sum())
 }

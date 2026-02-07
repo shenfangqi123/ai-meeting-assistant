@@ -4,7 +4,7 @@ use crate::rag::file_filter::{extension_allowed, is_minified_code, should_skip_p
 use crate::rag::lancedb_store::LanceDbStore;
 use crate::rag::paths::lancedb_path;
 use crate::rag::projects::{get_project_root, upsert_project_root};
-use crate::rag::store::RagManifestStore;
+use crate::rag::store::{RagManifestStore, RagStore};
 use crate::rag::types::{ChunkRecord, IndexReport, SkippedFile, FileRecord, ChunkHit};
 use chrono::Utc;
 use sha2::{Digest, Sha256};
@@ -16,6 +16,7 @@ use tauri::{AppHandle, Runtime};
 const DEFAULT_CHUNK_SIZE: usize = 1000;
 const DEFAULT_CHUNK_OVERLAP: usize = 150;
 const DEFAULT_MAX_FILE_SIZE: u64 = 1_048_576;
+const DEFAULT_EMBEDDING_DIMENSION: usize = 384;
 
 const QUERY_PREFIX: &str = "query: ";
 const PASSAGE_PREFIX: &str = "passage: ";
@@ -384,6 +385,18 @@ impl RagService {
   }
 }
 
+pub fn delete_project_index<R: Runtime>(
+  app: &AppHandle<R>,
+  project_id: &str,
+) -> Result<(usize, usize), String> {
+  let db_path = lancedb_path(app)?;
+  if let Some(parent) = db_path.parent() {
+    fs::create_dir_all(parent).map_err(|err| err.to_string())?;
+  }
+  let mut store = LanceDbStore::new(db_path, DEFAULT_EMBEDDING_DIMENSION)?;
+  store.delete_by_project(project_id)
+}
+
 struct FileCandidate {
   file_id: String,
   file_path: String,
@@ -496,6 +509,11 @@ mod tests {
     fn delete_by_file(&mut self, project_id: &str, file_id: &str) -> Result<usize, String> {
       let mut guard = self.inner.lock().map_err(|_| "store poisoned".to_string())?;
       RagStore::delete_by_file(&mut *guard, project_id, file_id)
+    }
+
+    fn delete_by_project(&mut self, project_id: &str) -> Result<(usize, usize), String> {
+      let mut guard = self.inner.lock().map_err(|_| "store poisoned".to_string())?;
+      RagStore::delete_by_project(&mut *guard, project_id)
     }
 
     fn search(

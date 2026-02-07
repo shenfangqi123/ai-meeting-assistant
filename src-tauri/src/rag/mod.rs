@@ -9,11 +9,13 @@ mod store;
 mod types;
 
 pub use types::{
-  IndexAddRequest, IndexRemoveRequest, IndexReport, IndexSyncRequest, RagSearchRequest,
-  RagSearchResponse,
+  IndexAddRequest, IndexRemoveRequest, IndexReport, IndexSyncRequest, RagProject,
+  RagProjectCreateRequest, RagProjectDeleteReport, RagProjectDeleteRequest, RagProjectListResponse,
+  RagSearchRequest, RagSearchResponse,
 };
 
-use service::RagService;
+use projects::{create_project, list_projects, remove_project};
+use service::{delete_project_index, RagService};
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use tauri::{AppHandle, State};
@@ -111,6 +113,48 @@ pub async fn rag_search(
       let top_k = request.top_k.unwrap_or(8);
       let hits = service.search(&request.query, request.project_ids, top_k)?;
       Ok(RagSearchResponse { hits })
+    })
+  })
+  .await
+  .map_err(|err| err.to_string())?
+}
+
+#[tauri::command]
+pub fn rag_pick_folder() -> Option<String> {
+  rfd::FileDialog::new()
+    .pick_folder()
+    .map(|path| path.to_string_lossy().to_string())
+}
+
+#[tauri::command]
+pub fn rag_project_list(app: AppHandle) -> Result<RagProjectListResponse, String> {
+  Ok(RagProjectListResponse {
+    projects: list_projects(&app),
+  })
+}
+
+#[tauri::command]
+pub fn rag_project_create(
+  app: AppHandle,
+  request: RagProjectCreateRequest,
+) -> Result<RagProject, String> {
+  let root = PathBuf::from(request.root_dir);
+  create_project(&app, &request.project_name, &root)
+}
+
+#[tauri::command]
+pub async fn rag_project_delete(
+  app: AppHandle,
+  request: RagProjectDeleteRequest,
+) -> Result<RagProjectDeleteReport, String> {
+  let app = app.clone();
+  tauri::async_runtime::spawn_blocking(move || {
+    let (deleted_files, deleted_chunks) = delete_project_index(&app, &request.project_id)?;
+    let _ = remove_project(&app, &request.project_id)?;
+    Ok(RagProjectDeleteReport {
+      project_id: request.project_id,
+      deleted_files,
+      deleted_chunks,
     })
   })
   .await

@@ -22,7 +22,10 @@ use tauri::{
   WebviewWindowBuilder, Window, WindowEvent,
 };
 use whisper_server::WhisperServerManager;
-use rag::{rag_index_add_files, rag_index_remove_files, rag_index_sync_project, rag_search, RagState};
+use rag::{
+  rag_index_add_files, rag_index_remove_files, rag_index_sync_project, rag_pick_folder,
+  rag_project_create, rag_project_delete, rag_project_list, rag_search, RagState,
+};
 
 const OUTPUT_LABEL: &str = "output";
 const RIGHT_LABEL: &str = "right";
@@ -1027,7 +1030,11 @@ fn main() {
       rag_index_add_files,
       rag_index_sync_project,
       rag_index_remove_files,
-      rag_search
+      rag_search,
+      rag_pick_folder,
+      rag_project_list,
+      rag_project_create,
+      rag_project_delete
     ])
     .run(tauri::generate_context!())
     .expect("error while running tauri application");
