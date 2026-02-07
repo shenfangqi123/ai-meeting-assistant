@@ -395,7 +395,7 @@ const openProgressModal = ({ projectName, rootDir }) => {
   }
 
   setProgress(0, "鍑嗗寮€濮?..");
-  addProgressLog("寮€濮嬪垱寤洪」鐩?);
+  addProgressLog("开始创建项目");
 };
 
 const startFakeProgress = () => {
@@ -475,7 +475,7 @@ const renderProjectList = () => {
   if (!projects.length) {
     const empty = document.createElement("div");
     empty.className = "project-empty";
-    empty.textContent = "鏆傛棤椤圭洰锛岀偣鍑烩€滄柊寤洪」鐩€濆紑濮嬨€?;
+    empty.textContent = "暂无项目，点击“新建项目”开始。";
     projectList.appendChild(empty);
     return;
   }
@@ -489,7 +489,7 @@ const renderProjectList = () => {
 
     const name = document.createElement("span");
     name.className = "project-row-name";
-    name.textContent = project.project_name || "鏈懡鍚嶉」鐩?;
+    name.textContent = project.project_name || "未命名项目";
     head.appendChild(name);
 
     if (selectedProjectIds.includes(project.project_id)) {
@@ -610,7 +610,7 @@ const createProjectAndSyncFromSelection = async (projectName, rootDir) => {
     });
 
     setProgress(25, "寮€濮嬫壂鎻忓苟绱㈠紩...");
-    addProgressLog("寮€濮嬫墽琛屽閲忓悓姝?);
+    addProgressLog("开始执行增量同步");
 
     const report = await invoke("rag_index_sync_project", {
       request: {
@@ -626,7 +626,7 @@ const createProjectAndSyncFromSelection = async (projectName, rootDir) => {
     createDraftRootDir = "";
     createDraftBusy = false;
     renderProjectDraft();
-    setCreateStatus("鍒涘缓鎴愬姛锛岀储寮曞凡瀹屾垚銆?);
+    setCreateStatus("创建成功，索引已完成。");
     showProgressResult(report);
   } catch (error) {
     createDraftBusy = false;
@@ -673,7 +673,7 @@ const chooseDirectoryAndStart = async () => {
 
 const updateProject = async (project) => {
   if (!project || projectActionMap.has(project.project_id)) return;
-  setProjectAction(project.project_id, "鏇存柊涓?);
+  setProjectAction(project.project_id, "更新中");
   try {
     const report = await invoke("rag_index_sync_project", {
       request: {
@@ -696,7 +696,7 @@ const deleteProject = async (project) => {
   );
   if (!confirmed) return;
 
-  setProjectAction(project.project_id, "鍒犻櫎涓?);
+  setProjectAction(project.project_id, "删除中");
   try {
     const report = await invoke("rag_project_delete", {
       request: { project_id: project.project_id },
