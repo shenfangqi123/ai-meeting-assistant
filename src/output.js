@@ -211,6 +211,7 @@ const mergeInfo = (entry, payload) => {
       entry.info[key] = value;
     }
   }
+  entry.info.order = parseOrder(entry.info);
 };
 
 const createRow = (info) => {
@@ -278,6 +279,27 @@ const insertRowElement = (row, prepend = false) => {
   }
 };
 
+const reorderRows = () => {
+  if (!listEl) return;
+  const ordered = Array.from(segmentMap.values()).sort((left, right) => {
+    const leftOrder = Number(left?.info?.order) || 0;
+    const rightOrder = Number(right?.info?.order) || 0;
+    if (leftOrder !== rightOrder) {
+      return rightOrder - leftOrder;
+    }
+    const leftName = left?.info?.name || "";
+    const rightName = right?.info?.name || "";
+    return rightName.localeCompare(leftName);
+  });
+
+  for (const entry of ordered) {
+    listEl.appendChild(entry.row);
+  }
+  if (emptyHint) {
+    listEl.appendChild(emptyHint);
+  }
+};
+
 const addSegment = (info, { prepend = false } = {}) => {
   if (!info || !info.name) return;
   if (segmentMap.has(info.name)) {
@@ -290,6 +312,7 @@ const addSegment = (info, { prepend = false } = {}) => {
   const entry = createRow(info);
   segmentMap.set(info.name, entry);
   insertRowElement(entry.row, prepend);
+  reorderRows();
   updateStatus();
 };
 
@@ -302,6 +325,7 @@ const updateSegment = (info) => {
   }
   mergeInfo(entry, info);
   renderRow(entry);
+  reorderRows();
 };
 
 const translateLiveFinal = async (info) => {
@@ -356,10 +380,9 @@ const clearSegmentsUi = () => {
 const loadSegments = async () => {
   try {
     const segments = await invoke("list_segments");
-    const ordered = segments
-      .slice()
-      .sort((a, b) => parseOrder(b) - parseOrder(a));
+    const ordered = segments.slice();
     ordered.forEach((segment) => addSegment(segment, { prepend: false }));
+    reorderRows();
   } catch (error) {
     console.warn("load segments error", error);
   } finally {
