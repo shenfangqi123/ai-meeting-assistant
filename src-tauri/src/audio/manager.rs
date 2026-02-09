@@ -1065,6 +1065,12 @@ fn run_translation_worker(
     }
     let batch_config = load_segment_translation_batch_config();
     let batch_requests = collect_translation_batch(&queue, first, batch_config);
+    eprintln!(
+      "[translate-worker] batch_size={} wait_ms={} picked={}",
+      batch_config.size,
+      batch_config.wait_ms,
+      batch_requests.len()
+    );
     in_flight.store(true, Ordering::SeqCst);
     translate_segment_batch_now(
       &app,
