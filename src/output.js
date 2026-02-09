@@ -252,14 +252,9 @@ const createRow = (info) => {
   const right = document.createElement("div");
   right.className = "cell translation-cell";
 
-  const translationTitle = document.createElement("div");
-  translationTitle.className = "live-title";
-  translationTitle.textContent = "translation";
-
   const translationEl = document.createElement("div");
   translationEl.className = "entry-text segment-translation";
 
-  right.appendChild(translationTitle);
   right.appendChild(translationEl);
 
   row.appendChild(left);
