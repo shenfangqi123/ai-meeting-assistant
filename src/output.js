@@ -279,17 +279,24 @@ const insertRowElement = (row, prepend = false) => {
   }
 };
 
-const reorderRows = () => {
+const scrollSegmentsToBottom = () => {
+  if (!listEl) return;
+  requestAnimationFrame(() => {
+    listEl.scrollTop = listEl.scrollHeight;
+  });
+};
+
+const reorderRows = ({ scrollToBottom = false } = {}) => {
   if (!listEl) return;
   const ordered = Array.from(segmentMap.values()).sort((left, right) => {
     const leftOrder = Number(left?.info?.order) || 0;
     const rightOrder = Number(right?.info?.order) || 0;
     if (leftOrder !== rightOrder) {
-      return rightOrder - leftOrder;
+      return leftOrder - rightOrder;
     }
     const leftName = left?.info?.name || "";
     const rightName = right?.info?.name || "";
-    return rightName.localeCompare(leftName);
+    return leftName.localeCompare(rightName);
   });
 
   for (const entry of ordered) {
@@ -298,9 +305,12 @@ const reorderRows = () => {
   if (emptyHint) {
     listEl.appendChild(emptyHint);
   }
+  if (scrollToBottom) {
+    scrollSegmentsToBottom();
+  }
 };
 
-const addSegment = (info, { prepend = false } = {}) => {
+const addSegment = (info, { prepend = false, scrollToBottom = true } = {}) => {
   if (!info || !info.name) return;
   if (segmentMap.has(info.name)) {
     const existing = segmentMap.get(info.name);
@@ -312,7 +322,7 @@ const addSegment = (info, { prepend = false } = {}) => {
   const entry = createRow(info);
   segmentMap.set(info.name, entry);
   insertRowElement(entry.row, prepend);
-  reorderRows();
+  reorderRows({ scrollToBottom });
   updateStatus();
 };
 
@@ -320,7 +330,7 @@ const updateSegment = (info) => {
   if (!info || !info.name) return;
   const entry = segmentMap.get(info.name);
   if (!entry) {
-    addSegment(info, { prepend: true });
+    addSegment(info, { prepend: false, scrollToBottom: true });
     return;
   }
   mergeInfo(entry, info);
@@ -381,8 +391,8 @@ const loadSegments = async () => {
   try {
     const segments = await invoke("list_segments");
     const ordered = segments.slice();
-    ordered.forEach((segment) => addSegment(segment, { prepend: false }));
-    reorderRows();
+    ordered.forEach((segment) => addSegment(segment, { prepend: false, scrollToBottom: false }));
+    reorderRows({ scrollToBottom: true });
   } catch (error) {
     console.warn("load segments error", error);
   } finally {
@@ -499,7 +509,7 @@ translateToggle?.addEventListener("change", () => {
 
 listen("segment_created", (event) => {
   if (event?.payload) {
-    addSegment(event.payload, { prepend: true });
+    addSegment(event.payload, { prepend: false, scrollToBottom: true });
   }
 });
 
