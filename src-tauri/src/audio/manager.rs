@@ -21,9 +21,6 @@ use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
 
 const DEFAULT_SEGMENT_TRANSLATE_BATCH_SIZE: usize = 1;
-const MAX_SEGMENT_TRANSLATE_BATCH_SIZE: usize = 8;
-const DEFAULT_SEGMENT_TRANSLATE_BATCH_WAIT_MS: u64 = 250;
-const MAX_SEGMENT_TRANSLATE_BATCH_WAIT_MS: u64 = 2000;
 const TRANSLATION_BATCH_POLL_MS: u64 = 10;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -133,7 +130,6 @@ struct TranslationRequest {
 #[derive(Debug, Clone, Copy)]
 struct SegmentTranslationBatchConfig {
   size: usize,
-  wait_ms: u64,
 }
 
 struct TranslationQueue {
@@ -870,39 +866,37 @@ fn load_segment_translation_batch_config() -> SegmentTranslationBatchConfig {
     .as_ref()
     .and_then(|cfg| cfg.segment_batch_size)
     .unwrap_or(DEFAULT_SEGMENT_TRANSLATE_BATCH_SIZE);
-  let size = raw_size.clamp(1, MAX_SEGMENT_TRANSLATE_BATCH_SIZE);
-
-  let raw_wait_ms = translate
-    .as_ref()
-    .and_then(|cfg| cfg.segment_batch_wait_ms)
-    .unwrap_or(DEFAULT_SEGMENT_TRANSLATE_BATCH_WAIT_MS);
-  let wait_ms = if size > 1 {
-    raw_wait_ms.min(MAX_SEGMENT_TRANSLATE_BATCH_WAIT_MS)
-  } else {
-    0
-  };
-
-  SegmentTranslationBatchConfig { size, wait_ms }
+  let size = raw_size.max(1);
+  SegmentTranslationBatchConfig { size }
 }
 
 fn collect_translation_batch(
   queue: &Arc<TranslationQueue>,
   first: TranslationRequest,
   config: SegmentTranslationBatchConfig,
+  translation_generation: &Arc<AtomicU64>,
 ) -> Vec<TranslationRequest> {
+  let active_generation = first.generation;
+  if active_generation != translation_generation.load(Ordering::SeqCst) {
+    return Vec::new();
+  }
   if config.size <= 1 {
     return vec![first];
   }
 
   let mut batch = vec![first];
-  let deadline = Instant::now() + Duration::from_millis(config.wait_ms);
   while batch.len() < config.size {
+    if active_generation != translation_generation.load(Ordering::SeqCst) {
+      return Vec::new();
+    }
     if let Some(request) = queue.try_pop() {
+      if request.generation != active_generation {
+        queue.push(request);
+        std::thread::sleep(Duration::from_millis(TRANSLATION_BATCH_POLL_MS));
+        continue;
+      }
       batch.push(request);
       continue;
-    }
-    if Instant::now() >= deadline {
-      break;
     }
     std::thread::sleep(Duration::from_millis(TRANSLATION_BATCH_POLL_MS));
   }
@@ -1044,11 +1038,14 @@ fn run_translation_worker(
       continue;
     }
     let batch_config = load_segment_translation_batch_config();
-    let batch_requests = collect_translation_batch(&queue, first, batch_config);
+    let batch_requests =
+      collect_translation_batch(&queue, first, batch_config, &translation_generation);
+    if batch_requests.is_empty() {
+      continue;
+    }
     eprintln!(
-      "[translate-worker] batch_size={} wait_ms={} picked={}",
+      "[translate-worker] batch_size={} picked={}",
       batch_config.size,
-      batch_config.wait_ms,
       batch_requests.len()
     );
     in_flight.store(true, Ordering::SeqCst);

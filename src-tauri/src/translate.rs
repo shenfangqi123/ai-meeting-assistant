@@ -261,7 +261,6 @@ fn resolve_translate_settings(
     provider: Some("ollama".to_string()),
     target_language: Some("zh".to_string()),
     segment_batch_size: None,
-    segment_batch_wait_ms: None,
   });
 
   if translate_config.enabled == Some(false) {
