@@ -697,14 +697,18 @@ fn apply_transcript(
     .filter(|value| !value.is_empty())
     .map(|value| value.to_string());
   let mut updated: Option<SegmentInfo> = None;
+  let mut snapshot: Option<Vec<SegmentInfo>> = None;
   if let Ok(mut guard) = segments.lock() {
     if let Some(segment) = guard.iter_mut().find(|segment| segment.name == name) {
       segment.transcript = transcript;
       segment.transcript_at = Some(Local::now().to_rfc3339());
       segment.transcript_ms = Some(elapsed_ms);
       updated = Some(segment.clone());
-      let _ = save_index(dir, &guard);
+      snapshot = Some(guard.clone());
     }
+  }
+  if let Some(snapshot) = snapshot {
+    let _ = save_index(dir, &snapshot);
   }
 
   if let Some(info) = updated {
@@ -844,14 +848,18 @@ fn apply_translation(
   elapsed_ms: u64,
 ) {
   let mut updated: Option<SegmentInfo> = None;
+  let mut snapshot: Option<Vec<SegmentInfo>> = None;
   if let Ok(mut guard) = segments.lock() {
     if let Some(segment) = guard.iter_mut().find(|segment| segment.name == name) {
       segment.translation = translation;
       segment.translation_at = Some(Local::now().to_rfc3339());
       segment.translation_ms = Some(elapsed_ms);
       updated = Some(segment.clone());
-      let _ = save_index(dir, &guard);
+      snapshot = Some(guard.clone());
     }
+  }
+  if let Some(snapshot) = snapshot {
+    let _ = save_index(dir, &snapshot);
   }
 
   if let Some(info) = updated {
@@ -1154,9 +1162,13 @@ fn push_segment(
     info.speaker_similarity = guard.current_similarity;
     info.speaker_changed = guard.last_changed;
   }
+  let mut snapshot: Option<Vec<SegmentInfo>> = None;
   if let Ok(mut guard) = segments.lock() {
     guard.push(info.clone());
-    let _ = save_index(dir, &guard);
+    snapshot = Some(guard.clone());
+  }
+  if let Some(snapshot) = snapshot {
+    let _ = save_index(dir, &snapshot);
   }
   if let Some(webview) = app.get_webview("output") {
     let _ = webview.emit("segment_created", info.clone());
