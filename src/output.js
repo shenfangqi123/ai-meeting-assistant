@@ -87,20 +87,6 @@ const resetLiveState = () => {
   setLiveFinal("", "pending");
 };
 
-const formatDuration = (ms) => {
-  const totalSeconds = Math.max(0, Math.round((ms || 0) / 1000));
-  const minutes = Math.floor(totalSeconds / 60);
-  const seconds = totalSeconds % 60;
-  return `${minutes}:${seconds.toString().padStart(2, "0")}`;
-};
-
-const formatTime = (iso) => {
-  if (!iso) return "";
-  const date = new Date(iso);
-  if (Number.isNaN(date.getTime())) return iso;
-  return date.toLocaleString();
-};
-
 const parseOrder = (info) => {
   if (!info) return Date.now();
   const createdAt = info.created_at ? Date.parse(info.created_at) : NaN;
@@ -178,12 +164,6 @@ const getTranslateProvider = async () => {
   return "ollama";
 };
 
-const renderRowMeta = (entry) => {
-  const { info, nameEl, metaEl } = entry;
-  nameEl.textContent = info.name || "";
-  metaEl.textContent = `${formatDuration(info.duration_ms)} | ${formatTime(info.created_at)}`;
-};
-
 const renderRowTranscript = (entry) => {
   const transcript = normalizeText(entry.info.transcript);
   if (transcript) {
@@ -220,7 +200,6 @@ const renderRowTranslation = (entry) => {
 };
 
 const renderRow = (entry) => {
-  renderRowMeta(entry);
   renderRowTranscript(entry);
   renderRowTranslation(entry);
 };
@@ -242,22 +221,9 @@ const createRow = (info) => {
   const left = document.createElement("div");
   left.className = "cell transcript-cell";
 
-  const metaLine = document.createElement("div");
-  metaLine.className = "meta-line";
-
-  const nameEl = document.createElement("strong");
-  nameEl.className = "segment-name";
-
-  const metaEl = document.createElement("span");
-  metaEl.className = "segment-meta";
-
-  metaLine.appendChild(nameEl);
-  metaLine.appendChild(metaEl);
-
   const transcriptEl = document.createElement("div");
   transcriptEl.className = "entry-text segment-transcript";
 
-  left.appendChild(metaLine);
   left.appendChild(transcriptEl);
 
   const divider = document.createElement("div");
@@ -282,14 +248,10 @@ const createRow = (info) => {
 
   const entry = {
     row,
-    nameEl,
-    metaEl,
     transcriptEl,
     translationEl,
     info: {
       name: info.name,
-      created_at: info.created_at,
-      duration_ms: info.duration_ms,
       transcript: info.transcript,
       translation: info.translation,
       order: parseOrder(info),
