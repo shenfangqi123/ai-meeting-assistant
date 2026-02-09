@@ -4,6 +4,7 @@ import { listen } from "@tauri-apps/api/event";
 const listEl = document.getElementById("segmentList");
 const emptyHint = document.getElementById("emptyHint");
 const statusEl = document.getElementById("segmentStatus");
+const headerPromptEl = document.getElementById("headerPrompt");
 const liveFinalEl = document.getElementById("liveFinal");
 const livePartialEl = document.getElementById("livePartial");
 const liveMetaEl = document.getElementById("liveMeta");
@@ -114,6 +115,12 @@ const applyLiveSpeaker = (speakerId, mixed) => {
 const normalizeText = (value) => {
   if (!value) return "";
   return value.replace(/\s+/g, " ").trim();
+};
+
+const updateHeaderPrompt = (text) => {
+  if (!headerPromptEl) return;
+  const value = normalizeText(text);
+  headerPromptEl.textContent = value ? `(${value})` : "";
 };
 
 const ensureLiveFinalNodes = () => {
@@ -237,11 +244,6 @@ const computeOverlapPrefix = (finalText, windowText) => {
 
 const updateLiveUi = () => {
   if (!liveFinalEl || !livePartialEl) return;
-  const finalText = liveFinalLog
-    ? liveStable
-      ? `${liveFinalLog}\n${liveStable}`
-      : liveFinalLog
-    : liveStable;
   const { stable } = ensureLiveFinalNodes();
   if (stable) {
     stable.textContent = liveStable ? liveStable : "";
@@ -252,15 +254,18 @@ const updateLiveUi = () => {
     livePartialEl.textContent = "";
     livePartialEl.dataset.empty = "true";
     livePartialEl.style.display = "none";
+    updateHeaderPrompt("Waiting for speech...");
     return;
   }
 
   if (livePartial) {
     livePartialEl.textContent = livePartial;
     livePartialEl.dataset.empty = "false";
+    updateHeaderPrompt("");
   } else {
-    livePartialEl.textContent = finalText ? "" : "Waiting for speech...";
+    livePartialEl.textContent = "";
     livePartialEl.dataset.empty = "true";
+    updateHeaderPrompt("Waiting for speech...");
   }
 };
 

@@ -52,6 +52,14 @@
         font-size: 16px;
         margin: 0;
         font-weight: 600;
+        line-height: 1.2;
+      }
+
+      .header-prompt {
+        font-size: 12px;
+        font-weight: 500;
+        color: var(--muted);
+        margin-left: 6px;
       }
 
       .status {
@@ -307,7 +315,7 @@
   <body>
     <div class="wrap">
       <header>
-        <h1>Segments</h1>
+        <h1>Segments <span class="header-prompt" id="headerPrompt">(Waiting for speech...)</span></h1>
         <div class="header-controls">
           <span class="status" id="segmentStatus">No segments</span>
           <label class="toggle">
@@ -325,7 +333,7 @@
           </div>
         </div>
         <div class="live-final" id="liveFinal"></div>
-        <div class="live-partial" id="livePartial" data-empty="true">Waiting for speech...</div>
+        <div class="live-partial" id="livePartial" data-empty="true"></div>
       </section>
     </div>
     <script type="module" src="/src/output.js"></script>
