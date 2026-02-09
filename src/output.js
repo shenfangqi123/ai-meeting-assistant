@@ -22,7 +22,6 @@ const MIN_SPLIT_RATIO = 0.28;
 const MAX_SPLIT_RATIO = 0.72;
 
 const segmentMap = new Map();
-const liveTranslated = new Set();
 const rowTranslationRequested = new Set();
 
 let translateEnabled = false;
@@ -384,28 +383,17 @@ const updateSegment = (info) => {
   reorderRows();
 };
 
-const translateLiveFinal = async (info) => {
-  if (!translateEnabled) return;
-  const text = normalizeText(info?.transcript || "");
-  if (!text) return;
-
-  const id = info?.name || `${Date.now()}`;
-  if (liveTranslated.has(id)) return;
-  liveTranslated.add(id);
-
-  const createdAt = info?.created_at ? Date.parse(info.created_at) : NaN;
-  const order = Number.isFinite(createdAt) ? createdAt : Date.now();
-
-  try {
-    const provider = await getTranslateProvider();
-    await invoke("translate_live", {
-      text,
-      provider,
-      name: id,
-      order,
-    });
-  } catch (error) {
-    console.warn("translate_live error", error);
+const applyLiveFinalFromSegment = (info) => {
+  if (!translateEnabled || !info) return;
+  const order = parseOrder(info);
+  if (order < liveStreamOrder) return;
+  liveStreamOrder = order;
+  liveStreamId = info.name || "";
+  const translated = normalizeText(info.translation);
+  if (translated) {
+    setLiveFinal(translated, "ready");
+  } else {
+    setLiveFinal("", "error");
   }
 };
 
@@ -429,7 +417,6 @@ const clearSegmentsUi = () => {
   if (listEl) {
     listEl.querySelectorAll(".segment-row").forEach((node) => node.remove());
   }
-  liveTranslated.clear();
   resetLiveState();
   updateStatus();
 };
@@ -580,7 +567,6 @@ listen("segment_transcribed", (event) => {
     if (entry) {
       void queueRowTranslation(entry);
     }
-    void translateLiveFinal(event.payload);
   }
 });
 
@@ -588,6 +574,7 @@ listen("segment_translated", (event) => {
   if (event?.payload) {
     rowTranslationRequested.delete(event.payload.name);
     updateSegment(event.payload);
+    applyLiveFinalFromSegment(event.payload);
   }
 });
 
