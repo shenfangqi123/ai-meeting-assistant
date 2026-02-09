@@ -42,6 +42,9 @@ const projectProgressLogs = document.getElementById("projectProgressLogs");
 const projectProgressSkippedWrap = document.getElementById("projectProgressSkippedWrap");
 const projectProgressSkippedList = document.getElementById("projectProgressSkippedList");
 const projectProgressDoneBtn = document.getElementById("projectProgressDoneBtn");
+const stopCaptureModal = document.getElementById("stopCaptureModal");
+const stopCaptureTranscribeOnlyBtn = document.getElementById("stopCaptureTranscribeOnly");
+const stopCaptureAllBtn = document.getElementById("stopCaptureAll");
 
 const ragSearchModal = document.getElementById("ragSearchModal");
 const ragSearchPrompt = document.getElementById("ragSearchPrompt");
@@ -73,6 +76,7 @@ let progressInterval = null;
 let progressValue = 0;
 let ragSearchModalOpen = false;
 let ragSearchRunning = false;
+let stopCaptureChoiceResolver = null;
 
 const normalizeUrl = (raw) => {
   if (!raw) return "";
@@ -774,6 +778,32 @@ const scheduleResize = (height) => {
   });
 };
 
+const closeStopCaptureModal = () => {
+  if (!stopCaptureModal) return;
+  stopCaptureModal.classList.add("hidden");
+  stopCaptureModal.setAttribute("aria-hidden", "true");
+};
+
+const resolveStopCaptureChoice = (choice) => {
+  const resolver = stopCaptureChoiceResolver;
+  if (!resolver) return;
+  stopCaptureChoiceResolver = null;
+  closeStopCaptureModal();
+  resolver(choice);
+};
+
+const chooseStopCaptureMode = () =>
+  new Promise((resolve) => {
+    if (!stopCaptureModal || !stopCaptureTranscribeOnlyBtn || !stopCaptureAllBtn) {
+      resolve("stop_all");
+      return;
+    }
+    stopCaptureChoiceResolver = resolve;
+    stopCaptureModal.classList.remove("hidden");
+    stopCaptureModal.setAttribute("aria-hidden", "false");
+    stopCaptureAllBtn.focus();
+  });
+
 const startCapture = async () => {
   if (isCapturing) return;
   await invoke("start_loopback_capture");
@@ -782,21 +812,8 @@ const startCapture = async () => {
 
 const stopCapture = async () => {
   if (!isCapturing) return;
-  let dropTranslations = false;
-  try {
-    const translating = await invoke("is_translation_busy");
-    if (translating) {
-      const confirmed = window.confirm(
-        "当前还有翻译任务在处理中。\n确认停止后将清空待处理翻译，并丢弃 stop 之后返回的旧翻译结果。"
-      );
-      if (!confirmed) {
-        return;
-      }
-      dropTranslations = true;
-    }
-  } catch (error) {
-    logError(`translation state error: ${error}`);
-  }
+  const mode = await chooseStopCaptureMode();
+  const dropTranslations = mode === "stop_all";
   await invoke("stop_loopback_capture", { dropTranslations });
   updateCaptureUi(false);
 };
@@ -840,6 +857,12 @@ const endResize = () => {
 
 window.addEventListener("pointerup", endResize);
 window.addEventListener("pointercancel", endResize);
+stopCaptureTranscribeOnlyBtn?.addEventListener("click", () => {
+  resolveStopCaptureChoice("transcribe_only");
+});
+stopCaptureAllBtn?.addEventListener("click", () => {
+  resolveStopCaptureChoice("stop_all");
+});
 
 asrStart?.addEventListener("click", async () => {
   try {

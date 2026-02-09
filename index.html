@@ -141,6 +141,16 @@
         </div>
       </div>
     </div>
+    <div id="stopCaptureModal" class="stop-capture-backdrop hidden" aria-hidden="true">
+      <div class="stop-capture-modal" role="dialog" aria-modal="true" aria-labelledby="stopCaptureTitle">
+        <h3 id="stopCaptureTitle">停止采集</h3>
+        <p class="stop-capture-text">请选择停止方式</p>
+        <div class="row stop-capture-actions">
+          <button id="stopCaptureTranscribeOnly" type="button">仅停转写</button>
+          <button id="stopCaptureAll" class="primary" type="button">转写+翻译都停</button>
+        </div>
+      </div>
+    </div>
 
     <script type="module" src="/src/main.js"></script>
   </body>

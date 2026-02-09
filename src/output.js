@@ -683,8 +683,6 @@ listen("segment_list_cleared", () => {
 listen("segment_translation_canceled", () => {
   clearQueuedRowTranslations();
   rowTranslationRequested.clear();
-  translateEnabled = false;
-  updateTranslateUi();
 });
 
 listen("window_transcribed", (event) => {

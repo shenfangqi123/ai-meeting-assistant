@@ -551,6 +551,43 @@ button:disabled {
   color: #312921;
 }
 
+.stop-capture-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 12, 9, 0.48);
+  z-index: 160;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+}
+
+.stop-capture-modal {
+  width: min(420px, 100%);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  box-shadow: var(--shadow);
+  padding: 16px;
+  display: grid;
+  gap: 10px;
+}
+
+.stop-capture-modal h3 {
+  margin: 0;
+}
+
+.stop-capture-text {
+  margin: 0;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.stop-capture-actions {
+  justify-content: flex-end;
+  margin-bottom: 0;
+}
+
 @keyframes spin {
   to {
     transform: rotate(360deg);
