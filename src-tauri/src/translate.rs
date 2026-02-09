@@ -16,6 +16,15 @@ pub struct BatchTranslationItem {
   pub text: String,
 }
 
+fn log_translate_request_body(provider: &str, mode: &str, body: &serde_json::Value) {
+  eprintln!(
+    "[translate-api] provider={} mode={} request_body={}",
+    provider,
+    mode,
+    body
+  );
+}
+
 pub async fn translate_text(
   text: &str,
   provider_override: Option<String>,
@@ -101,6 +110,7 @@ async fn translate_with_openai(
     ],
     "temperature": 0.2
   });
+  log_translate_request_body("openai", "single", &body);
 
   let endpoint = base_url.trim_end_matches('/').to_string();
   let started_at = Instant::now();
@@ -190,6 +200,7 @@ async fn translate_with_ollama(
     "prompt": prompt,
     "stream": false
   });
+  log_translate_request_body("ollama", "single", &body);
 
   let client = Client::builder()
     .timeout(Duration::from_secs(timeout_secs))
@@ -330,6 +341,7 @@ Each element must be {{\"id\": string, \"translation\": string}}."
     ],
     "temperature": 0.1
   });
+  log_translate_request_body("openai", "batch", &body);
 
   let client = Client::builder()
     .timeout(Duration::from_secs(timeout_secs))
@@ -442,6 +454,7 @@ Each element must be {{\"id\": string, \"translation\": string}}.\n\n{payload}"
     "prompt": prompt,
     "stream": false
   });
+  log_translate_request_body("ollama", "batch", &body);
 
   let client = Client::builder()
     .timeout(Duration::from_secs(timeout_secs))
