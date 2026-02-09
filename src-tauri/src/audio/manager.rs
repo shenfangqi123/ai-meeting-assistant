@@ -5,7 +5,7 @@ use crate::audio::speaker::SpeakerDiarizer;
 use crate::audio::writer::SegmentWriter;
 use crate::audio::wasapi::LoopbackCapture;
 use crate::transcribe::{transcribe_file, transcribe_with_whisper_server};
-use crate::translate::translate_text;
+use crate::translate::{translate_text, translate_text_batch, BatchTranslationItem};
 use chrono::Local;
 use hound::{SampleFormat, WavSpec, WavWriter};
 use serde::{Deserialize, Serialize};
@@ -19,6 +19,12 @@ use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Manager};
+
+const DEFAULT_SEGMENT_TRANSLATE_BATCH_SIZE: usize = 1;
+const MAX_SEGMENT_TRANSLATE_BATCH_SIZE: usize = 8;
+const DEFAULT_SEGMENT_TRANSLATE_BATCH_WAIT_MS: u64 = 250;
+const MAX_SEGMENT_TRANSLATE_BATCH_WAIT_MS: u64 = 2000;
+const TRANSLATION_BATCH_POLL_MS: u64 = 10;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SegmentInfo {
@@ -124,6 +130,12 @@ struct TranslationRequest {
   generation: u64,
 }
 
+#[derive(Debug, Clone, Copy)]
+struct SegmentTranslationBatchConfig {
+  size: usize,
+  wait_ms: u64,
+}
+
 struct TranslationQueue {
   state: Mutex<TranslationQueueState>,
   cvar: Condvar,
@@ -179,6 +191,19 @@ impl TranslationQueue {
         Err(poisoned) => poisoned.into_inner(),
       };
     }
+  }
+
+  fn try_pop(&self) -> Option<TranslationRequest> {
+    let mut guard = match self.state.lock() {
+      Ok(guard) => guard,
+      Err(poisoned) => poisoned.into_inner(),
+    };
+    if guard.items.is_empty() {
+      return None;
+    }
+    let request = guard.items.remove(0);
+    guard.pending.remove(&request.name);
+    Some(request)
   }
 
   fn clear(&self) {
@@ -839,6 +864,192 @@ fn run_transcription_worker(
   }
 }
 
+fn load_segment_translation_batch_config() -> SegmentTranslationBatchConfig {
+  let translate = load_app_config().ok().and_then(|cfg| cfg.translate);
+  let raw_size = translate
+    .as_ref()
+    .and_then(|cfg| cfg.segment_batch_size)
+    .unwrap_or(DEFAULT_SEGMENT_TRANSLATE_BATCH_SIZE);
+  let size = raw_size.clamp(1, MAX_SEGMENT_TRANSLATE_BATCH_SIZE);
+
+  let raw_wait_ms = translate
+    .as_ref()
+    .and_then(|cfg| cfg.segment_batch_wait_ms)
+    .unwrap_or(DEFAULT_SEGMENT_TRANSLATE_BATCH_WAIT_MS);
+  let wait_ms = if size > 1 {
+    raw_wait_ms.min(MAX_SEGMENT_TRANSLATE_BATCH_WAIT_MS)
+  } else {
+    0
+  };
+
+  SegmentTranslationBatchConfig { size, wait_ms }
+}
+
+fn collect_translation_batch(
+  queue: &Arc<TranslationQueue>,
+  first: TranslationRequest,
+  config: SegmentTranslationBatchConfig,
+) -> Vec<TranslationRequest> {
+  if config.size <= 1 {
+    return vec![first];
+  }
+
+  let mut batch = vec![first];
+  let deadline = Instant::now() + Duration::from_millis(config.wait_ms);
+  while batch.len() < config.size {
+    if let Some(request) = queue.try_pop() {
+      batch.push(request);
+      continue;
+    }
+    if Instant::now() >= deadline {
+      break;
+    }
+    std::thread::sleep(Duration::from_millis(TRANSLATION_BATCH_POLL_MS));
+  }
+  batch
+}
+
+fn translate_segment_batch_now(
+  app: &AppHandle,
+  dir: &Path,
+  segments: &Arc<Mutex<Vec<SegmentInfo>>>,
+  requests: Vec<TranslationRequest>,
+  translation_generation: Arc<AtomicU64>,
+) {
+  if requests.is_empty() {
+    return;
+  }
+
+  let batch_config = load_segment_translation_batch_config();
+  if batch_config.size <= 1 || requests.len() <= 1 {
+    for request in requests {
+      translate_segment_now(app, dir, segments, request, Arc::clone(&translation_generation));
+    }
+    return;
+  }
+
+  let mut group: Vec<TranslationRequest> = Vec::new();
+  let mut current_provider: Option<String> = None;
+  for request in requests {
+    if group.is_empty() {
+      current_provider = request.provider.clone();
+      group.push(request);
+      continue;
+    }
+    if request.provider == current_provider {
+      group.push(request);
+      continue;
+    }
+
+    translate_segment_provider_group(
+      app,
+      dir,
+      segments,
+      std::mem::take(&mut group),
+      Arc::clone(&translation_generation),
+    );
+    current_provider = request.provider.clone();
+    group.push(request);
+  }
+
+  if !group.is_empty() {
+    translate_segment_provider_group(app, dir, segments, group, translation_generation);
+  }
+}
+
+fn translate_segment_provider_group(
+  app: &AppHandle,
+  dir: &Path,
+  segments: &Arc<Mutex<Vec<SegmentInfo>>>,
+  requests: Vec<TranslationRequest>,
+  translation_generation: Arc<AtomicU64>,
+) {
+  if requests.is_empty() {
+    return;
+  }
+
+  if requests.len() <= 1 {
+    for request in requests {
+      translate_segment_now(app, dir, segments, request, Arc::clone(&translation_generation));
+    }
+    return;
+  }
+
+  let active_generation = translation_generation.load(Ordering::SeqCst);
+  let mut batch_items: Vec<BatchTranslationItem> = Vec::new();
+  for request in &requests {
+    if request.generation != active_generation {
+      continue;
+    }
+    let transcript = {
+      let guard = segments.lock().ok();
+      guard.as_ref().and_then(|segments| {
+        segments
+          .iter()
+          .find(|segment| segment.name == request.name)
+          .and_then(|segment| segment.transcript.clone())
+      })
+    };
+    let Some(transcript) = transcript else {
+      continue;
+    };
+    batch_items.push(BatchTranslationItem {
+      id: request.name.clone(),
+      text: transcript,
+    });
+  }
+
+  if batch_items.len() <= 1 {
+    for request in requests {
+      translate_segment_now(app, dir, segments, request, Arc::clone(&translation_generation));
+    }
+    return;
+  }
+
+  let provider = requests.first().and_then(|request| request.provider.clone());
+  let started_at = Instant::now();
+  let batch_result = tauri::async_runtime::block_on(async {
+    translate_text_batch(&batch_items, provider.clone()).await
+  });
+
+  match batch_result {
+    Ok(translations) => {
+      let elapsed_ms = started_at.elapsed().as_millis() as u64;
+      let mut applied_names = HashSet::new();
+      for request in &requests {
+        if request.generation != translation_generation.load(Ordering::SeqCst) {
+          continue;
+        }
+        let Some(translation) = translations.get(&request.name) else {
+          continue;
+        };
+        applied_names.insert(request.name.clone());
+        apply_translation(
+          app,
+          dir,
+          segments,
+          &request.name,
+          Some(translation.clone()),
+          elapsed_ms,
+        );
+      }
+
+      for request in requests {
+        if applied_names.contains(&request.name) {
+          continue;
+        }
+        translate_segment_now(app, dir, segments, request, Arc::clone(&translation_generation));
+      }
+    }
+    Err(err) => {
+      eprintln!("batch translation failed: {err}");
+      for request in requests {
+        translate_segment_now(app, dir, segments, request, Arc::clone(&translation_generation));
+      }
+    }
+  }
+}
+
 fn run_translation_worker(
   app: AppHandle,
   dir: PathBuf,
@@ -848,16 +1059,18 @@ fn run_translation_worker(
   translation_generation: Arc<AtomicU64>,
 ) {
   loop {
-    let request = queue.pop();
-    if request.generation != translation_generation.load(Ordering::SeqCst) {
+    let first = queue.pop();
+    if first.generation != translation_generation.load(Ordering::SeqCst) {
       continue;
     }
+    let batch_config = load_segment_translation_batch_config();
+    let batch_requests = collect_translation_batch(&queue, first, batch_config);
     in_flight.store(true, Ordering::SeqCst);
-    translate_segment_now(
+    translate_segment_batch_now(
       &app,
       &dir,
       &segments,
-      request,
+      batch_requests,
       Arc::clone(&translation_generation),
     );
     in_flight.store(false, Ordering::SeqCst);

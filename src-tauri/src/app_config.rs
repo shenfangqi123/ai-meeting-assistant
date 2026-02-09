@@ -44,6 +44,8 @@ pub struct TranslateConfig {
   pub enabled: Option<bool>,
   pub provider: Option<String>,
   pub target_language: Option<String>,
+  pub segment_batch_size: Option<usize>,
+  pub segment_batch_wait_ms: Option<u64>,
 }
 
 #[derive(Debug, Clone, Deserialize)]
