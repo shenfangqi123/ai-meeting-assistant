@@ -23,6 +23,7 @@ const MAX_SPLIT_RATIO = 0.72;
 
 const segmentMap = new Map();
 const liveTranslated = new Set();
+const rowTranslationRequested = new Set();
 
 let translateEnabled = false;
 let autoScrollEnabled = false;
@@ -35,6 +36,8 @@ const normalizeText = (value) => {
   if (!value) return "";
   return value.replace(/\s+/g, " ").trim();
 };
+
+const hasTranslationText = (value) => normalizeText(value).length > 0;
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 
@@ -203,7 +206,7 @@ const renderRowTranslation = (entry) => {
 
   const translation = entry.info.translation;
   if (translation === null || translation === undefined) {
-    entry.translationEl.textContent = "Translating...";
+    entry.translationEl.textContent = "";
     entry.translationEl.dataset.state = "pending";
     return;
   }
@@ -221,6 +224,35 @@ const renderRowTranslation = (entry) => {
 const renderRow = (entry) => {
   renderRowTranscript(entry);
   renderRowTranslation(entry);
+};
+
+const queueRowTranslation = async (entry) => {
+  if (!translateEnabled || !entry?.info?.name) return;
+  const name = entry.info.name;
+  if (!normalizeText(entry.info.transcript)) return;
+  if (hasTranslationText(entry.info.translation)) return;
+  if (rowTranslationRequested.has(name)) return;
+
+  rowTranslationRequested.add(name);
+  entry.translationEl.textContent = "";
+  entry.translationEl.dataset.state = "pending";
+
+  try {
+    const provider = await getTranslateProvider();
+    await invoke("translate_segment", { name, provider });
+  } catch (error) {
+    rowTranslationRequested.delete(name);
+    console.warn("translate_segment enqueue error", error);
+    entry.translationEl.textContent = "Translation failed";
+    entry.translationEl.dataset.state = "error";
+  }
+};
+
+const queueMissingRowTranslations = () => {
+  if (!translateEnabled) return;
+  for (const entry of segmentMap.values()) {
+    void queueRowTranslation(entry);
+  }
 };
 
 const mergeInfo = (entry, payload) => {
@@ -393,6 +425,7 @@ const updateTranslateUi = () => {
 
 const clearSegmentsUi = () => {
   segmentMap.clear();
+  rowTranslationRequested.clear();
   if (listEl) {
     listEl.querySelectorAll(".segment-row").forEach((node) => node.remove());
   }
@@ -442,7 +475,7 @@ const handleLiveTranslationStart = (payload) => {
   liveStreamOrder = order;
   liveStreamId = payload?.id || "";
   liveStreamText = "";
-  setLiveFinal("Translating...", "pending");
+  setLiveFinal("", "pending");
 };
 
 const handleLiveTranslationChunk = (payload) => {
@@ -519,6 +552,9 @@ window.addEventListener("pointercancel", stopSplitDrag);
 translateToggle?.addEventListener("change", () => {
   translateEnabled = !!translateToggle.checked;
   updateTranslateUi();
+  if (translateEnabled) {
+    queueMissingRowTranslations();
+  }
 });
 
 autoScrollToggle?.addEventListener("change", () => {
@@ -540,12 +576,17 @@ listen("segment_transcribed", (event) => {
 
   updateSegment(event.payload);
   if (translateEnabled) {
+    const entry = segmentMap.get(event.payload.name);
+    if (entry) {
+      void queueRowTranslation(entry);
+    }
     void translateLiveFinal(event.payload);
   }
 });
 
 listen("segment_translated", (event) => {
   if (event?.payload) {
+    rowTranslationRequested.delete(event.payload.name);
     updateSegment(event.payload);
   }
 });
@@ -601,5 +642,8 @@ if (autoScrollToggle) {
 }
 resetLiveState();
 updateTranslateUi();
+if (translateEnabled) {
+  queueMissingRowTranslations();
+}
 updateStatus();
 void loadSegments();
