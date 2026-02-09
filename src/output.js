@@ -8,6 +8,7 @@ const headerPromptEl = document.getElementById("headerPrompt");
 const boardEl = document.getElementById("segmentBoard");
 const splitBarEl = document.getElementById("columnSplitBar");
 const translateToggle = document.getElementById("translateToggle");
+const autoScrollToggle = document.getElementById("autoScrollToggle");
 
 const liveFinalEl = document.getElementById("liveFinal");
 const livePartialEl = document.getElementById("livePartial");
@@ -15,6 +16,7 @@ const liveMetaEl = document.getElementById("liveMeta");
 const liveSpeakerEl = document.getElementById("liveSpeaker");
 
 const SPLIT_STORAGE_KEY = "segment_board_split_ratio";
+const AUTO_SCROLL_STORAGE_KEY = "segment_auto_scroll_enabled";
 const DEFAULT_SPLIT_RATIO = 0.52;
 const MIN_SPLIT_RATIO = 0.28;
 const MAX_SPLIT_RATIO = 0.72;
@@ -23,6 +25,7 @@ const segmentMap = new Map();
 const liveTranslated = new Set();
 
 let translateEnabled = false;
+let autoScrollEnabled = false;
 let draggingSplit = false;
 let liveStreamOrder = Number.NEGATIVE_INFINITY;
 let liveStreamId = "";
@@ -106,6 +109,22 @@ const parseOrder = (info) => {
   const millisecond = Number(match[3]);
   const ts = new Date(year, month, day, hour, minute, second, millisecond).getTime();
   return Number.isFinite(ts) ? ts : Date.now();
+};
+
+const saveAutoScrollEnabled = (enabled) => {
+  try {
+    localStorage.setItem(AUTO_SCROLL_STORAGE_KEY, enabled ? "1" : "0");
+  } catch (_) {
+    // Ignore unavailable storage.
+  }
+};
+
+const loadAutoScrollEnabled = () => {
+  try {
+    return localStorage.getItem(AUTO_SCROLL_STORAGE_KEY) === "1";
+  } catch (_) {
+    return false;
+  }
 };
 
 const saveSplitRatio = (ratio) => {
@@ -280,7 +299,7 @@ const insertRowElement = (row, prepend = false) => {
 };
 
 const scrollSegmentsToBottom = () => {
-  if (!listEl) return;
+  if (!listEl || !autoScrollEnabled) return;
   requestAnimationFrame(() => {
     listEl.scrollTop = listEl.scrollHeight;
   });
@@ -507,6 +526,14 @@ translateToggle?.addEventListener("change", () => {
   updateTranslateUi();
 });
 
+autoScrollToggle?.addEventListener("change", () => {
+  autoScrollEnabled = !!autoScrollToggle.checked;
+  saveAutoScrollEnabled(autoScrollEnabled);
+  if (autoScrollEnabled) {
+    scrollSegmentsToBottom();
+  }
+});
+
 listen("segment_created", (event) => {
   if (event?.payload) {
     addSegment(event.payload, { prepend: false, scrollToBottom: true });
@@ -573,6 +600,10 @@ listen("live_translation_cleared", () => {
 });
 
 setSplitRatio(loadSplitRatio(), false);
+autoScrollEnabled = loadAutoScrollEnabled();
+if (autoScrollToggle) {
+  autoScrollToggle.checked = autoScrollEnabled;
+}
 resetLiveState();
 updateTranslateUi();
 updateStatus();
