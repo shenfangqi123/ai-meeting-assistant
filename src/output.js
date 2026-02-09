@@ -470,20 +470,6 @@ const updateSegment = (info) => {
   }
 };
 
-const applyLiveFinalFromSegment = (info) => {
-  if (!translateEnabled || !info) return;
-  const order = parseOrder(info);
-  if (order < liveStreamOrder) return;
-  liveStreamOrder = order;
-  liveStreamId = info.name || "";
-  const translated = normalizeText(info.translation);
-  if (translated) {
-    setLiveFinal(translated, "ready");
-  } else {
-    setLiveFinal("", "error");
-  }
-};
-
 const updateTranslateUi = () => {
   if (translateToggle) {
     translateToggle.checked = translateEnabled;
@@ -681,7 +667,6 @@ listen("segment_translated", (event) => {
   if (event?.payload) {
     rowTranslationRequested.delete(event.payload.name);
     updateSegment(event.payload);
-    applyLiveFinalFromSegment(event.payload);
   }
 });
 
@@ -693,6 +678,13 @@ listen("segment_speakered", (event) => {
 
 listen("segment_list_cleared", () => {
   clearSegmentsUi();
+});
+
+listen("segment_translation_canceled", () => {
+  clearQueuedRowTranslations();
+  rowTranslationRequested.clear();
+  translateEnabled = false;
+  updateTranslateUi();
 });
 
 listen("window_transcribed", (event) => {

@@ -14,7 +14,7 @@ use std::fs;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{mpsc, Arc, Condvar, Mutex};
 use std::thread::{self, JoinHandle};
 use std::time::{Duration, Instant};
@@ -91,6 +91,8 @@ pub struct CaptureManager {
   queues: Mutex<Option<TaskQueues>>,
   translation_pending: Arc<Mutex<HashMap<String, Option<String>>>>,
   speaker_state: Arc<Mutex<SpeakerState>>,
+  translation_generation: Arc<AtomicU64>,
+  drop_segment_translation: Arc<AtomicBool>,
 }
 
 struct CaptureHandle {
@@ -108,6 +110,7 @@ struct StreamHandle {
 struct TaskQueues {
   transcribe_tx: mpsc::Sender<String>,
   translation_queue: Arc<TranslationQueue>,
+  translation_in_flight: Arc<AtomicBool>,
   window_tx: mpsc::Sender<WindowTask>,
   window_in_flight: Arc<AtomicBool>,
   speaker_state: Arc<Mutex<SpeakerState>>,
@@ -118,6 +121,7 @@ struct TranslationRequest {
   name: String,
   provider: Option<String>,
   order: usize,
+  generation: u64,
 }
 
 struct TranslationQueue {
@@ -183,6 +187,13 @@ impl TranslationQueue {
       guard.pending.clear();
     }
   }
+
+  fn len(&self) -> usize {
+    match self.state.lock() {
+      Ok(guard) => guard.items.len(),
+      Err(_) => 0,
+    }
+  }
 }
 
 impl CaptureManager {
@@ -193,6 +204,8 @@ impl CaptureManager {
       queues: Mutex::new(None),
       translation_pending: Arc::new(Mutex::new(HashMap::new())),
       speaker_state: Arc::new(Mutex::new(SpeakerState::default())),
+      translation_generation: Arc::new(AtomicU64::new(0)),
+      drop_segment_translation: Arc::new(AtomicBool::new(false)),
     }
   }
 
@@ -207,8 +220,11 @@ impl CaptureManager {
 
     let (tx, rx) = mpsc::channel();
     let translation_queue = Arc::new(TranslationQueue::new());
+    let translation_in_flight = Arc::new(AtomicBool::new(false));
     let segments = Arc::clone(&self.segments);
     let pending = Arc::clone(&self.translation_pending);
+    let generation = Arc::clone(&self.translation_generation);
+    let drop_segment_translation = Arc::clone(&self.drop_segment_translation);
     let app_handle = app.clone();
     let dir_buf = dir.to_path_buf();
     let translation_queue_clone = Arc::clone(&translation_queue);
@@ -220,6 +236,8 @@ impl CaptureManager {
         rx,
         translation_queue_clone,
         pending,
+        generation,
+        drop_segment_translation,
       );
     });
 
@@ -227,8 +245,17 @@ impl CaptureManager {
     let dir_buf = dir.to_path_buf();
     let segments = Arc::clone(&self.segments);
     let translation_queue_clone = Arc::clone(&translation_queue);
+    let translation_in_flight_clone = Arc::clone(&translation_in_flight);
+    let generation = Arc::clone(&self.translation_generation);
     thread::spawn(move || {
-      run_translation_worker(app_handle, dir_buf, segments, translation_queue_clone);
+      run_translation_worker(
+        app_handle,
+        dir_buf,
+        segments,
+        translation_queue_clone,
+        translation_in_flight_clone,
+        generation,
+      );
     });
 
     let (window_tx, window_rx) = mpsc::channel();
@@ -243,6 +270,7 @@ impl CaptureManager {
     let queues = TaskQueues {
       transcribe_tx: tx,
       translation_queue,
+      translation_in_flight,
       window_tx,
       window_in_flight,
       speaker_state: Arc::clone(&self.speaker_state),
@@ -263,6 +291,7 @@ impl CaptureManager {
     }
 
     let segments_dir = ensure_segments_dir(&app)?;
+    self.drop_segment_translation.store(false, Ordering::SeqCst);
     let config = load_config(&app);
     let mut asr_config = load_app_config().ok().and_then(|cfg| cfg.asr).unwrap_or_default();
     if let Some(state) = app.try_state::<AsrState>() {
@@ -294,7 +323,10 @@ impl CaptureManager {
     Ok(())
   }
 
-  pub fn stop(&self) -> Result<(), String> {
+  pub fn stop(&self, app: &AppHandle, drop_translations: bool) -> Result<(), String> {
+    if drop_translations {
+      self.drop_pending_translations(app);
+    }
     let mut guard = self.handle.lock().map_err(|_| "capture state poisoned".to_string())?;
     let Some(handle) = guard.take() else {
       return Ok(());
@@ -308,6 +340,28 @@ impl CaptureManager {
       let _ = stream.reader.join();
     }
     Ok(())
+  }
+
+  pub fn is_translation_busy(&self) -> bool {
+    let pending_busy = self
+      .translation_pending
+      .lock()
+      .map(|guard| !guard.is_empty())
+      .unwrap_or(false);
+    if pending_busy {
+      return true;
+    }
+    let guard = match self.queues.lock() {
+      Ok(guard) => guard,
+      Err(_) => return false,
+    };
+    let Some(queues) = guard.as_ref() else {
+      return false;
+    };
+    if queues.translation_in_flight.load(Ordering::SeqCst) {
+      return true;
+    }
+    queues.translation_queue.len() > 0
   }
 
   pub fn list(&self, app: AppHandle) -> Result<Vec<SegmentInfo>, String> {
@@ -334,7 +388,7 @@ impl CaptureManager {
   }
 
   pub fn clear(&self, app: AppHandle) -> Result<(), String> {
-    self.stop()?;
+    self.stop(&app, true)?;
     let segments_dir = ensure_segments_dir(&app)?;
     if let Ok(entries) = fs::read_dir(&segments_dir) {
       for entry in entries.flatten() {
@@ -383,6 +437,9 @@ impl CaptureManager {
     }
     let queues = self.ensure_queues(&app, &segments_dir);
     let provider = provider.filter(|value| !value.trim().is_empty());
+    if self.drop_segment_translation.load(Ordering::SeqCst) {
+      return Ok(());
+    }
 
     let transcript_ready = {
       let guard = self.segments.lock().ok();
@@ -398,11 +455,33 @@ impl CaptureManager {
     };
 
     if transcript_ready {
-      enqueue_translation(&queues.translation_queue, &self.segments, name, provider);
+      enqueue_translation(
+        &queues.translation_queue,
+        &self.segments,
+        &self.translation_generation,
+        name,
+        provider,
+      );
     } else if let Ok(mut guard) = self.translation_pending.lock() {
       guard.entry(name).or_insert(provider);
     }
     Ok(())
+  }
+
+  fn drop_pending_translations(&self, app: &AppHandle) {
+    self.drop_segment_translation.store(true, Ordering::SeqCst);
+    self.translation_generation.fetch_add(1, Ordering::SeqCst);
+    if let Ok(mut guard) = self.translation_pending.lock() {
+      guard.clear();
+    }
+    if let Ok(guard) = self.queues.lock() {
+      if let Some(queues) = guard.as_ref() {
+        queues.translation_queue.clear();
+      }
+    }
+    if let Some(webview) = app.get_webview("output") {
+      let _ = webview.emit("segment_translation_canceled", true);
+    }
   }
 }
 
@@ -727,6 +806,8 @@ fn run_transcription_worker(
   rx: mpsc::Receiver<String>,
   translation_queue: Arc<TranslationQueue>,
   pending: Arc<Mutex<HashMap<String, Option<String>>>>,
+  translation_generation: Arc<AtomicU64>,
+  drop_segment_translation: Arc<AtomicBool>,
 ) {
   while let Ok(name) = rx.recv() {
     let path = dir.join(&name);
@@ -743,8 +824,17 @@ fn run_transcription_worker(
     let elapsed_ms = started_at.elapsed().as_millis() as u64;
     apply_transcript(&app, &dir, &segments, &name, transcript, elapsed_ms);
 
+    if drop_segment_translation.load(Ordering::SeqCst) {
+      continue;
+    }
     if let Some(provider) = take_pending_translation(&pending, &name) {
-      enqueue_translation(&translation_queue, &segments, name.clone(), provider);
+      enqueue_translation(
+        &translation_queue,
+        &segments,
+        &translation_generation,
+        name.clone(),
+        provider,
+      );
     }
   }
 }
@@ -754,10 +844,23 @@ fn run_translation_worker(
   dir: PathBuf,
   segments: Arc<Mutex<Vec<SegmentInfo>>>,
   queue: Arc<TranslationQueue>,
+  in_flight: Arc<AtomicBool>,
+  translation_generation: Arc<AtomicU64>,
 ) {
   loop {
     let request = queue.pop();
-    translate_segment_now(&app, &dir, &segments, request);
+    if request.generation != translation_generation.load(Ordering::SeqCst) {
+      continue;
+    }
+    in_flight.store(true, Ordering::SeqCst);
+    translate_segment_now(
+      &app,
+      &dir,
+      &segments,
+      request,
+      Arc::clone(&translation_generation),
+    );
+    in_flight.store(false, Ordering::SeqCst);
   }
 }
 
@@ -1090,6 +1193,7 @@ fn take_pending_translation(
 fn enqueue_translation(
   queue: &TranslationQueue,
   segments: &Arc<Mutex<Vec<SegmentInfo>>>,
+  translation_generation: &Arc<AtomicU64>,
   name: String,
   provider: Option<String>,
 ) {
@@ -1098,6 +1202,7 @@ fn enqueue_translation(
     name,
     provider,
     order,
+    generation: translation_generation.load(Ordering::SeqCst),
   });
 }
 
@@ -1114,7 +1219,11 @@ fn translate_segment_now(
   dir: &Path,
   segments: &Arc<Mutex<Vec<SegmentInfo>>>,
   request: TranslationRequest,
+  translation_generation: Arc<AtomicU64>,
 ) {
+  if request.generation != translation_generation.load(Ordering::SeqCst) {
+    return;
+  }
   let transcript = {
     let guard = segments.lock().ok();
     guard.as_ref().and_then(|segments| {
@@ -1139,6 +1248,9 @@ fn translate_segment_now(
       Some(String::new())
     }
   };
+  if request.generation != translation_generation.load(Ordering::SeqCst) {
+    return;
+  }
   let elapsed_ms = started_at.elapsed().as_millis() as u64;
   apply_translation(
     app,

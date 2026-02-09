@@ -984,8 +984,17 @@ async fn start_loopback_capture(
 }
 
 #[tauri::command]
-async fn stop_loopback_capture(state: State<'_, CaptureManager>) -> Result<(), String> {
-  state.stop()
+async fn stop_loopback_capture(
+  app: AppHandle,
+  state: State<'_, CaptureManager>,
+  drop_translations: Option<bool>,
+) -> Result<(), String> {
+  state.stop(&app, drop_translations.unwrap_or(false))
+}
+
+#[tauri::command]
+fn is_translation_busy(state: State<'_, CaptureManager>) -> bool {
+  state.is_translation_busy()
 }
 
 #[tauri::command]
@@ -1176,6 +1185,7 @@ fn main() {
       set_top_height,
       start_loopback_capture,
       stop_loopback_capture,
+      is_translation_busy,
       list_segments,
       read_segment_bytes,
       clear_segments,

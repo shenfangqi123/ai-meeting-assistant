@@ -782,7 +782,22 @@ const startCapture = async () => {
 
 const stopCapture = async () => {
   if (!isCapturing) return;
-  await invoke("stop_loopback_capture");
+  let dropTranslations = false;
+  try {
+    const translating = await invoke("is_translation_busy");
+    if (translating) {
+      const confirmed = window.confirm(
+        "当前还有翻译任务在处理中。\n确认停止后将清空待处理翻译，并丢弃 stop 之后返回的旧翻译结果。"
+      );
+      if (!confirmed) {
+        return;
+      }
+      dropTranslations = true;
+    }
+  } catch (error) {
+    logError(`translation state error: ${error}`);
+  }
+  await invoke("stop_loopback_capture", { dropTranslations });
   updateCaptureUi(false);
 };
 
