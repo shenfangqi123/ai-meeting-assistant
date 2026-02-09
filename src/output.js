@@ -101,18 +101,6 @@ const formatTime = (iso) => {
   return date.toLocaleString();
 };
 
-const formatSeconds = (ms) => {
-  if (ms === null || ms === undefined) return "";
-  return `${(ms / 1000).toFixed(1)}s`;
-};
-
-const formatSpeaker = (info) => {
-  if (!info || info.speaker_id === null || info.speaker_id === undefined) {
-    return { text: "Speaker ?", unknown: true };
-  }
-  return { text: `Speaker ${info.speaker_id}`, unknown: false };
-};
-
 const parseOrder = (info) => {
   if (!info) return Date.now();
   const createdAt = info.created_at ? Date.parse(info.created_at) : NaN;
@@ -196,21 +184,10 @@ const renderRowMeta = (entry) => {
   metaEl.textContent = `${formatDuration(info.duration_ms)} | ${formatTime(info.created_at)}`;
 };
 
-const renderRowSpeaker = (entry) => {
-  const speaker = formatSpeaker(entry.info);
-  entry.speakerEl.textContent = speaker.text;
-  if (speaker.unknown) {
-    entry.speakerEl.dataset.state = "unknown";
-  } else {
-    delete entry.speakerEl.dataset.state;
-  }
-};
-
 const renderRowTranscript = (entry) => {
   const transcript = normalizeText(entry.info.transcript);
   if (transcript) {
-    const stamp = formatSeconds(entry.info.transcript_ms);
-    entry.transcriptEl.textContent = stamp ? `${transcript} | ${stamp}` : transcript;
+    entry.transcriptEl.textContent = transcript;
     entry.transcriptEl.dataset.state = "ready";
   } else {
     entry.transcriptEl.textContent = "Transcribing...";
@@ -234,8 +211,7 @@ const renderRowTranslation = (entry) => {
 
   const cleaned = normalizeText(translation);
   if (cleaned) {
-    const stamp = formatSeconds(entry.info.translation_ms);
-    entry.translationEl.textContent = stamp ? `${cleaned} | ${stamp}` : cleaned;
+    entry.translationEl.textContent = cleaned;
     entry.translationEl.dataset.state = "ready";
   } else {
     entry.translationEl.textContent = "Translation failed";
@@ -245,10 +221,8 @@ const renderRowTranslation = (entry) => {
 
 const renderRow = (entry) => {
   renderRowMeta(entry);
-  renderRowSpeaker(entry);
   renderRowTranscript(entry);
   renderRowTranslation(entry);
-  entry.translateButton.disabled = !translateEnabled;
 };
 
 const mergeInfo = (entry, payload) => {
@@ -257,23 +231,6 @@ const mergeInfo = (entry, payload) => {
     if (value !== undefined) {
       entry.info[key] = value;
     }
-  }
-};
-
-const requestSegmentTranslation = async (entry) => {
-  if (!translateEnabled) return;
-  if (!entry?.info?.name) return;
-
-  entry.translationEl.textContent = "Translating...";
-  entry.translationEl.dataset.state = "pending";
-
-  try {
-    const provider = await getTranslateProvider();
-    await invoke("translate_segment", { name: entry.info.name, provider });
-  } catch (error) {
-    console.warn("translate error", error);
-    entry.translationEl.textContent = "Translation failed";
-    entry.translationEl.dataset.state = "error";
   }
 };
 
@@ -294,19 +251,8 @@ const createRow = (info) => {
   const metaEl = document.createElement("span");
   metaEl.className = "segment-meta";
 
-  const speakerEl = document.createElement("span");
-  speakerEl.className = "segment-speaker";
-
-  const translateButton = document.createElement("button");
-  translateButton.className = "translate-button";
-  translateButton.setAttribute("aria-label", "Translate");
-  translateButton.innerHTML =
-    '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h8v2H9.8c.7 1.4 1.7 2.6 2.9 3.7.8-.9 1.4-1.8 2-2.9l1.8.9c-.7 1.4-1.6 2.7-2.7 3.8l2.2 2.1-1.4 1.4-2.2-2.1c-1.4 1.2-3 2.2-4.8 3l-.8-1.8c1.6-.7 3-1.5 4.2-2.6-1.4-1.3-2.6-2.9-3.4-4.7H4V5zm11.5 5H18l3 9h-2l-.7-2h-4.6l-.7 2h-2l3.5-9zm-1.4 5h3.2l-1.6-4.5-1.6 4.5z"/></svg>';
-
   metaLine.appendChild(nameEl);
   metaLine.appendChild(metaEl);
-  metaLine.appendChild(speakerEl);
-  metaLine.appendChild(translateButton);
 
   const transcriptEl = document.createElement("div");
   transcriptEl.className = "entry-text segment-transcript";
@@ -338,27 +284,17 @@ const createRow = (info) => {
     row,
     nameEl,
     metaEl,
-    speakerEl,
     transcriptEl,
     translationEl,
-    translateButton,
     info: {
       name: info.name,
       created_at: info.created_at,
       duration_ms: info.duration_ms,
-      speaker_id: info.speaker_id,
-      speaker_mixed: info.speaker_mixed,
       transcript: info.transcript,
-      transcript_ms: info.transcript_ms,
       translation: info.translation,
-      translation_ms: info.translation_ms,
       order: parseOrder(info),
     },
   };
-
-  translateButton.addEventListener("click", () => {
-    void requestSegmentTranslation(entry);
-  });
 
   row.addEventListener("mouseenter", () => {
     row.classList.add("hover-linked");
@@ -441,7 +377,6 @@ const updateTranslateUi = () => {
   }
 
   for (const entry of segmentMap.values()) {
-    entry.translateButton.disabled = !translateEnabled;
     renderRowTranslation(entry);
   }
 };
