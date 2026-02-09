@@ -361,7 +361,7 @@ impl CaptureManager {
     if let Some(webview) = app.get_webview("output") {
       let _ = webview.emit("segment_list_cleared", true);
     }
-    if let Some(webview) = app.get_webview("right") {
+    if let Some(webview) = app.get_webview("output") {
       let _ = webview.emit("live_translation_cleared", true);
     }
     Ok(())

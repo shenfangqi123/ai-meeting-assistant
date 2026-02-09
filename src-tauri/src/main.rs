@@ -28,17 +28,11 @@ use rag::{
 };
 
 const OUTPUT_LABEL: &str = "output";
-const RIGHT_LABEL: &str = "right";
-const DIVIDER_LABEL: &str = "divider";
 const OUTPUT_URL: &str = "blank.html";
-const RIGHT_URL: &str = "empty.html";
-const DIVIDER_URL: &str = "divider.html";
 const INTRO_URL: &str = "intro.html";
-const DIVIDER_WIDTH: f64 = 12.0;
 const MIN_TOP_HEIGHT: f64 = 190.0;
 const MAX_TOP_HEIGHT: f64 = 10_000.0;
 const MIN_BOTTOM_HEIGHT: f64 = 100.0;
-const MIN_BOTTOM_WIDTH: f64 = 100.0;
 const DEFAULT_OLLAMA_BASE_URL: &str = "http://localhost:11434";
 const DEFAULT_OLLAMA_TIMEOUT: u64 = 600;
 const DEFAULT_OLLAMA_MODEL: &str = "gpt-oss:20b";
@@ -113,7 +107,6 @@ struct LiveTranslationError {
 
 struct LayoutState {
   top_height: Mutex<Option<f64>>,
-  bottom_ratio: Mutex<Option<f64>>,
 }
 
 struct TranslateProviderState {
@@ -124,17 +117,9 @@ struct Layout {
   width: f64,
   top_height: f64,
   bottom_height: f64,
-  left_width: f64,
-  right_width: f64,
-  divider_x: f64,
-  divider_width: f64,
 }
 
-fn compute_layout(
-  window: &Window,
-  override_top: Option<f64>,
-  override_ratio: Option<f64>,
-) -> Result<Layout, String> {
+fn compute_layout(window: &Window, override_top: Option<f64>) -> Result<Layout, String> {
   let size = window.inner_size().map_err(|err| err.to_string())?;
   let scale = window.scale_factor().map_err(|err| err.to_string())?;
   let width = size.width as f64 / scale;
@@ -149,33 +134,10 @@ fn compute_layout(
   top_height = top_height.min(max_allowed);
   let bottom_height = (height - top_height).max(120.0);
 
-  let ratio = override_ratio.unwrap_or(0.5).clamp(0.0, 1.0);
-  let mut min_ratio = MIN_BOTTOM_WIDTH / width;
-  let mut max_ratio = 1.0 - MIN_BOTTOM_WIDTH / width;
-  if min_ratio > max_ratio {
-    min_ratio = 0.5;
-    max_ratio = 0.5;
-  }
-  let ratio = ratio.clamp(min_ratio, max_ratio);
-  let left_width = (width * ratio).round();
-  let right_width = (width - left_width).max(0.0);
-
-  let divider_width = DIVIDER_WIDTH.min(width);
-  let mut divider_x = left_width - divider_width / 2.0;
-  if width <= divider_width {
-    divider_x = 0.0;
-  } else {
-    divider_x = divider_x.clamp(0.0, width - divider_width);
-  }
-
   Ok(Layout {
     width,
     top_height,
     bottom_height,
-    left_width,
-    right_width,
-    divider_x,
-    divider_width,
   })
 }
 
@@ -194,22 +156,12 @@ fn read_top_override(state: &LayoutState) -> Option<f64> {
   }
 }
 
-fn read_ratio_override(state: &LayoutState) -> Option<f64> {
-  match state.bottom_ratio.lock() {
-    Ok(guard) => *guard,
-    Err(_) => None,
-  }
-}
-
 fn apply_layout(
   window: &Window,
   output: &Webview,
-  right: &Webview,
-  divider: &Webview,
   override_top: Option<f64>,
-  override_ratio: Option<f64>,
 ) -> Result<Layout, String> {
-  let layout = compute_layout(window, override_top, override_ratio)?;
+  let layout = compute_layout(window, override_top)?;
   let main = main_webview(window)?;
 
   main
@@ -223,61 +175,21 @@ fn apply_layout(
     .set_position(LogicalPosition::new(0.0, layout.top_height))
     .map_err(|err| err.to_string())?;
   output
-    .set_size(LogicalSize::new(layout.left_width, layout.bottom_height))
-    .map_err(|err| err.to_string())?;
-
-  right
-    .set_position(LogicalPosition::new(layout.left_width, layout.top_height))
-    .map_err(|err| err.to_string())?;
-  right
-    .set_size(LogicalSize::new(layout.right_width, layout.bottom_height))
-    .map_err(|err| err.to_string())?;
-
-  divider
-    .set_position(LogicalPosition::new(layout.divider_x, layout.top_height))
-    .map_err(|err| err.to_string())?;
-  divider
-    .set_size(LogicalSize::new(layout.divider_width, layout.bottom_height))
+    .set_size(LogicalSize::new(layout.width, layout.bottom_height))
     .map_err(|err| err.to_string())?;
 
   Ok(layout)
 }
 
 fn create_output_webview(window: &Window) -> Result<Webview, String> {
-  let layout = compute_layout(window, None, None)?;
+  let layout = compute_layout(window, None)?;
   let builder = WebviewBuilder::new(OUTPUT_LABEL, WebviewUrl::App(OUTPUT_URL.into()));
 
   window
     .add_child(
       builder,
       LogicalPosition::new(0.0, layout.top_height),
-      LogicalSize::new(layout.left_width, layout.bottom_height),
-    )
-    .map_err(|err| err.to_string())
-}
-
-fn create_right_webview(window: &Window) -> Result<Webview, String> {
-  let layout = compute_layout(window, None, None)?;
-  let builder = WebviewBuilder::new(RIGHT_LABEL, WebviewUrl::App(RIGHT_URL.into()));
-
-  window
-    .add_child(
-      builder,
-      LogicalPosition::new(layout.left_width, layout.top_height),
-      LogicalSize::new(layout.right_width, layout.bottom_height),
-    )
-    .map_err(|err| err.to_string())
-}
-
-fn create_divider_webview(window: &Window) -> Result<Webview, String> {
-  let layout = compute_layout(window, None, None)?;
-  let builder = WebviewBuilder::new(DIVIDER_LABEL, WebviewUrl::App(DIVIDER_URL.into()));
-
-  window
-    .add_child(
-      builder,
-      LogicalPosition::new(layout.divider_x, layout.top_height),
-      LogicalSize::new(layout.divider_width, layout.bottom_height),
+      LogicalSize::new(layout.width, layout.bottom_height),
     )
     .map_err(|err| err.to_string())
 }
@@ -286,8 +198,8 @@ fn to_boxed_error(message: String) -> Box<dyn std::error::Error> {
   Box::new(std::io::Error::new(std::io::ErrorKind::Other, message))
 }
 
-fn emit_right<T: Serialize + Clone>(app: &AppHandle, event: &str, payload: T) {
-  if let Some(webview) = app.get_webview(RIGHT_LABEL) {
+fn emit_output<T: Serialize + Clone>(app: &AppHandle, event: &str, payload: T) {
+  if let Some(webview) = app.get_webview(OUTPUT_LABEL) {
     let _ = webview.emit(event, payload);
   }
 }
@@ -321,19 +233,12 @@ fn resolve_translate_settings(
 #[tauri::command]
 async fn content_navigate(app: AppHandle, url: String) -> Result<(), String> {
   let parsed_url = url::Url::parse(&url).map_err(|err| err.to_string())?;
-
-  let right = if let Some(webview) = app.get_webview(RIGHT_LABEL) {
-    webview
-  } else {
-    let window = app
-      .get_window("main")
-      .ok_or_else(|| "main window not found".to_string())?;
-    create_right_webview(&window)?
-  };
-
-  right
-    .navigate(parsed_url)
-    .map_err(|err| err.to_string())
+  let label = format!("meeting-{}", Local::now().timestamp_millis());
+  WebviewWindowBuilder::new(&app, label, WebviewUrl::External(parsed_url))
+    .title("Meeting")
+    .build()
+    .map_err(|err| err.to_string())?;
+  Ok(())
 }
 
 #[tauri::command]
@@ -348,44 +253,10 @@ async fn set_top_height(
   let output = app
     .get_webview(OUTPUT_LABEL)
     .ok_or_else(|| "output webview not found".to_string())?;
-  let right = app
-    .get_webview(RIGHT_LABEL)
-    .ok_or_else(|| "right webview not found".to_string())?;
-  let divider = app
-    .get_webview(DIVIDER_LABEL)
-    .ok_or_else(|| "divider webview not found".to_string())?;
 
-  let ratio = read_ratio_override(&state);
-  let layout = apply_layout(&window, &output, &right, &divider, Some(height), ratio)?;
+  let layout = apply_layout(&window, &output, Some(height))?;
   if let Ok(mut guard) = state.top_height.lock() {
     *guard = Some(layout.top_height);
-  }
-  Ok(())
-}
-
-#[tauri::command]
-async fn set_bottom_split(
-  app: AppHandle,
-  state: State<'_, LayoutState>,
-  ratio: f64,
-) -> Result<(), String> {
-  let window = app
-    .get_window("main")
-    .ok_or_else(|| "main window not found".to_string())?;
-  let output = app
-    .get_webview(OUTPUT_LABEL)
-    .ok_or_else(|| "output webview not found".to_string())?;
-  let right = app
-    .get_webview(RIGHT_LABEL)
-    .ok_or_else(|| "right webview not found".to_string())?;
-  let divider = app
-    .get_webview(DIVIDER_LABEL)
-    .ok_or_else(|| "divider webview not found".to_string())?;
-
-  let top = read_top_override(&state);
-  let layout = apply_layout(&window, &output, &right, &divider, top, Some(ratio))?;
-  if let Ok(mut guard) = state.bottom_ratio.lock() {
-    *guard = Some(layout.left_width / layout.width);
   }
   Ok(())
 }
@@ -516,7 +387,7 @@ async fn translate_live(
     .unwrap_or_else(|| format!("live-{}", Local::now().timestamp_millis()));
   let created_at = Local::now().to_rfc3339();
 
-  emit_right(
+  emit_output(
     &app,
     "live_translation_start",
     LiveTranslationStart {
@@ -540,7 +411,7 @@ async fn translate_live(
 
   match result {
     Ok(translation) => {
-      emit_right(
+      emit_output(
         &app,
         "live_translation_done",
         LiveTranslationDone {
@@ -553,7 +424,7 @@ async fn translate_live(
       Ok(())
     }
     Err(err) => {
-      emit_right(
+      emit_output(
         &app,
         "live_translation_error",
         LiveTranslationError { id, order, error: err.clone() },
@@ -658,7 +529,7 @@ async fn stream_translate_with_ollama(
       if let Some(response_text) = value.get("response").and_then(|v| v.as_str()) {
         if !response_text.is_empty() {
           full.push_str(response_text);
-          emit_right(
+          emit_output(
             app,
             "live_translation_chunk",
             LiveTranslationChunk {
@@ -687,7 +558,7 @@ async fn stream_translate_with_ollama(
         if let Some(response_text) = value.get("response").and_then(|v| v.as_str()) {
           if !response_text.is_empty() {
             full.push_str(response_text);
-            emit_right(
+            emit_output(
               app,
               "live_translation_chunk",
               LiveTranslationChunk {
@@ -844,7 +715,7 @@ async fn stream_translate_with_openai(
       if let Some(chunk_text) = delta {
         if !chunk_text.is_empty() {
           full.push_str(chunk_text);
-          emit_right(
+          emit_output(
             app,
             "live_translation_chunk",
             LiveTranslationChunk {
@@ -1231,7 +1102,7 @@ fn log_live_line(index: u64, line: String) {
 
 #[tauri::command]
 fn emit_live_draft(app: AppHandle, text: String) {
-  emit_right(&app, "live_draft_update", text);
+  emit_output(&app, "live_draft_update", text);
 }
 
 fn main() {
@@ -1243,7 +1114,6 @@ fn main() {
   tauri::Builder::default()
     .manage(LayoutState {
       top_height: Mutex::new(None),
-      bottom_ratio: Mutex::new(None),
     })
     .manage(TranslateProviderState {
       provider: Mutex::new(normalize_translate_provider(&initial_translate_provider)),
@@ -1273,12 +1143,6 @@ fn main() {
       if app.get_webview(OUTPUT_LABEL).is_none() {
         let _output = create_output_webview(&window).map_err(to_boxed_error)?;
       }
-      if app.get_webview(RIGHT_LABEL).is_none() {
-        let _right = create_right_webview(&window).map_err(to_boxed_error)?;
-      }
-      if app.get_webview(DIVIDER_LABEL).is_none() {
-        let _divider = create_divider_webview(&window).map_err(to_boxed_error)?;
-      }
       let app_handle = app.handle().clone();
       let window_label = window.label().to_string();
       window.on_window_event(move |event| {
@@ -1289,28 +1153,17 @@ fn main() {
           let Some(output) = app_handle.get_webview(OUTPUT_LABEL) else {
             return;
           };
-          let Some(right) = app_handle.get_webview(RIGHT_LABEL) else {
-            return;
-          };
-          let Some(divider) = app_handle.get_webview(DIVIDER_LABEL) else {
-            return;
-          };
           let state = app_handle.state::<LayoutState>();
           let override_top = read_top_override(&state);
-          let override_ratio = read_ratio_override(&state);
-          if let Err(err) = apply_layout(&window, &output, &right, &divider, override_top, override_ratio) {
+          if let Err(err) = apply_layout(&window, &output, override_top) {
             eprintln!("layout error: {err}");
           }
         }
       });
 
       let output = app.get_webview(OUTPUT_LABEL).unwrap();
-      let right = app.get_webview(RIGHT_LABEL).unwrap();
-      let divider = app.get_webview(DIVIDER_LABEL).unwrap();
       let override_top = read_top_override(&state);
-      let override_ratio = read_ratio_override(&state);
-      apply_layout(&window, &output, &right, &divider, override_top, override_ratio)
-        .map_err(to_boxed_error)?;
+      apply_layout(&window, &output, override_top).map_err(to_boxed_error)?;
 
       Ok(())
     })
@@ -1321,7 +1174,6 @@ fn main() {
       open_intro_window,
       content_navigate,
       set_top_height,
-      set_bottom_split,
       start_loopback_capture,
       stop_loopback_capture,
       list_segments,

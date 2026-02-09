@@ -1,4 +1,4 @@
-<!doctype html>
+﻿<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
@@ -12,6 +12,7 @@
         --muted: #6f645a;
         --accent: #da5a34;
         --border: #e1d9cf;
+        --pink-bar: #ef7f91;
       }
 
       * {
@@ -31,7 +32,7 @@
       .wrap {
         height: 100%;
         display: grid;
-        grid-template-rows: auto 1fr auto;
+        grid-template-rows: auto 1fr;
         gap: 12px;
         padding: 16px;
       }
@@ -67,40 +68,88 @@
         color: var(--muted);
       }
 
-      .live {
+      .board {
         background: var(--surface);
         border-radius: 14px;
         border: 1px solid var(--border);
-        padding: 12px;
         display: grid;
+        grid-template-rows: auto auto 1fr;
         gap: 8px;
+        padding: 12px;
+        position: relative;
+        overflow: hidden;
+        min-height: 0;
+        --left-width: 52%;
+        --split-width: 12px;
+        --right-width: calc(100% - var(--left-width) - var(--split-width));
       }
 
-      .live-header {
+      .board-header {
+        display: grid;
+        grid-template-columns: minmax(0, var(--left-width)) var(--split-width) minmax(0, var(--right-width));
+        align-items: center;
+        gap: 0;
+        min-height: 28px;
+      }
+
+      .column-title {
+        font-size: 12px;
+        color: var(--muted);
+        font-weight: 600;
+        letter-spacing: 0.02em;
+        padding: 0 10px;
+      }
+
+      .split-slot {
+        width: 100%;
+        height: 100%;
+      }
+
+      .live-row,
+      .segment-row {
+        display: grid;
+        grid-template-columns: minmax(0, var(--left-width)) var(--split-width) minmax(0, var(--right-width));
+        gap: 8px;
+        border-radius: 10px;
+        border: 1px solid transparent;
+        background: #faf8f5;
+        transition: border-color 120ms ease, box-shadow 120ms ease, background-color 120ms ease;
+      }
+
+      .live-row {
+        min-height: 90px;
+      }
+
+      .segment-row {
+        min-height: 84px;
+      }
+
+      .segment-row:hover,
+      .segment-row.hover-linked {
+        border-color: var(--accent);
+        box-shadow: 0 6px 16px rgba(218, 90, 52, 0.14);
+        background: #fff7f2;
+      }
+
+      .cell {
+        min-width: 0;
+        padding: 10px;
+        display: grid;
+        align-content: start;
+        gap: 6px;
+      }
+
+      .divider-cell {
+        width: 100%;
+      }
+
+      .meta-line {
         display: flex;
         align-items: center;
-        justify-content: space-between;
-        gap: 12px;
-        height: 24px;
-      }
-
-      .live-title {
-        font-size: 13px;
-        font-weight: 600;
-        line-height: 1;
-        margin: 0;
-      }
-
-      .live-meta {
+        gap: 8px;
+        flex-wrap: wrap;
         font-size: 11px;
         color: var(--muted);
-        line-height: 1;
-      }
-
-      .live-meta-group {
-        display: inline-flex;
-        align-items: center;
-        gap: 8px;
       }
 
       .live-speaker {
@@ -114,96 +163,24 @@
       }
 
       .live-speaker[data-state="unknown"] {
-        color: var(--muted);
         font-style: italic;
       }
 
-      .live-final,
-      .live-partial {
+      .entry-text {
         font-size: 13px;
         line-height: 1.5;
         white-space: pre-wrap;
         word-break: break-word;
-      }
-
-      .live-final {
         color: var(--ink);
-        display: grid;
-        gap: 0;
       }
 
-      .live-final-list {
-        display: grid;
-        gap: 0;
-      }
-
-      .live-final-line {
-        padding: 0 8px;
-        border-radius: 8px;
-      }
-
-      .live-final-line.inserted {
-        background: rgba(218, 90, 52, 0.16);
-        border: 1px solid rgba(218, 90, 52, 0.25);
-      }
-
-      .live-final-stable {
-        padding: 6px 8px;
-        border-radius: 8px;
-        background: #f3efe9;
+      .entry-text[data-state="pending"] {
         color: var(--muted);
         font-style: italic;
       }
 
-      .live-partial {
-        color: var(--muted);
-      }
-
-      .live-partial[data-empty="true"] {
-        font-style: italic;
-      }
-
-      .list {
-        background: var(--surface);
-        border-radius: 14px;
-        border: 1px solid var(--border);
-        padding: 8px;
-        overflow-y: auto;
-        display: grid;
-        gap: 8px;
-      }
-
-      .empty {
-        color: var(--muted);
-        font-size: 13px;
-        text-align: center;
-        padding: 24px 0;
-      }
-
-      .segment {
-        display: flex;
-        justify-content: space-between;
-        align-items: center;
-        gap: 8px;
-        padding: 8px 10px;
-        border-radius: 10px;
-        border: 1px solid transparent;
-        background: #faf8f5;
-      }
-
-      .segment-title {
-        display: flex;
-        flex-direction: column;
-        gap: 4px;
-        min-width: 0;
-      }
-
-      .segment-title strong {
-        font-size: 13px;
-        font-weight: 600;
-        white-space: nowrap;
-        overflow: hidden;
-        text-overflow: ellipsis;
+      .entry-text[data-state="error"] {
+        color: #b23b2a;
       }
 
       .segment-meta {
@@ -220,65 +197,52 @@
         font-style: italic;
       }
 
-      .segment-translation {
-        font-size: 12px;
-        color: var(--ink);
-        line-height: 1.4;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-
-      .segment-translation[data-state="pending"] {
+      .live-title {
+        font-size: 11px;
         color: var(--muted);
-        font-style: italic;
+        font-weight: 600;
+        letter-spacing: 0.02em;
       }
 
-      .segment-translation[data-state="error"] {
-        color: #b23b2a;
-      }
-
-      .segment-transcript {
-        font-size: 12px;
-        color: var(--ink);
-        line-height: 1.4;
-        margin-top: 2px;
-        white-space: pre-wrap;
-        word-break: break-word;
-      }
-
-      .segment-transcript[data-state="pending"] {
+      .live-partial {
         color: var(--muted);
-        font-style: italic;
+        align-self: start;
       }
 
-      .segment-transcript[data-state="error"] {
-        color: #b23b2a;
+      .live-final {
+        align-self: start;
+        max-height: 92px;
+        overflow-y: auto;
       }
 
-      .segment button {
-        border: none;
-        background: var(--accent);
-        color: white;
-        padding: 6px 10px;
-        border-radius: 999px;
-        cursor: pointer;
-        font-size: 12px;
-        display: inline-flex;
-        align-items: center;
-        justify-content: center;
+      .segment-list {
+        overflow-y: auto;
+        display: grid;
+        gap: 8px;
+        padding-right: 2px;
+        align-content: start;
+        min-height: 0;
       }
 
-      .segment-actions {
-        display: inline-flex;
-        align-items: center;
-        gap: 6px;
+      .empty {
+        color: var(--muted);
+        font-size: 13px;
+        text-align: center;
+        padding: 24px 0;
       }
 
       .translate-button {
+        border: none;
         background: #2c6c4f;
-        width: 32px;
-        height: 32px;
+        color: white;
+        width: 28px;
+        height: 28px;
         padding: 0;
+        border-radius: 999px;
+        cursor: pointer;
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
       }
 
       .translate-button svg {
@@ -287,14 +251,9 @@
         fill: white;
       }
 
-      .provider-toggle {
-        border: 1px solid var(--border);
-        background: var(--surface);
-        color: var(--ink);
-        padding: 6px 10px;
-        border-radius: 999px;
-        font-size: 12px;
-        cursor: pointer;
+      .translate-button:disabled {
+        opacity: 0.5;
+        cursor: default;
       }
 
       .toggle {
@@ -310,6 +269,29 @@
         accent-color: var(--accent);
       }
 
+      .split-bar {
+        position: absolute;
+        top: 0;
+        bottom: 0;
+        left: var(--left-width);
+        width: var(--split-width);
+        background: linear-gradient(to bottom, #f4a1af, var(--pink-bar), #f4a1af);
+        border-left: 1px solid rgba(42, 36, 31, 0.12);
+        border-right: 1px solid rgba(42, 36, 31, 0.12);
+        cursor: col-resize;
+        z-index: 6;
+      }
+
+      .board.translation-hidden {
+        --left-width: 100%;
+        --split-width: 0px;
+      }
+
+      .board.translation-hidden .translation-cell,
+      .board.translation-hidden .column-title.translation,
+      .board.translation-hidden .split-bar {
+        display: none;
+      }
     </style>
   </head>
   <body>
@@ -320,20 +302,34 @@
           <span class="status" id="segmentStatus">No segments</span>
           <label class="toggle">
             <input id="translateToggle" type="checkbox" />
-            翻译
+            Translate
           </label>
         </div>
       </header>
-      <section class="live">
-        <div class="live-header">
-          <h2 class="live-title">Live Captions</h2>
-          <div class="live-meta-group">
-            <span class="live-speaker" id="liveSpeaker" data-state="unknown">Speaker ?</span>
-            <span class="live-meta" id="liveMeta">Idle</span>
-          </div>
+      <section class="board translation-hidden" id="segmentBoard">
+        <div class="board-header">
+          <div class="column-title">Transcription</div>
+          <div class="split-slot"></div>
+          <div class="column-title translation">Live Translation</div>
         </div>
-        <div class="live-final" id="liveFinal"></div>
-        <div class="live-partial" id="livePartial" data-empty="true"></div>
+        <article class="live-row" id="liveRow">
+          <div class="cell transcript-cell">
+            <div class="meta-line">
+              <span class="live-speaker" id="liveSpeaker" data-state="unknown">Speaker ?</span>
+              <span class="live-meta" id="liveMeta">Idle</span>
+            </div>
+            <div class="entry-text live-partial" id="livePartial" data-state="pending"></div>
+          </div>
+          <div class="divider-cell"></div>
+          <div class="cell translation-cell">
+            <div class="live-title">live-final</div>
+            <div class="entry-text live-final" id="liveFinal" data-state="pending"></div>
+          </div>
+        </article>
+        <div class="segment-list" id="segmentList">
+          <div class="empty" id="emptyHint">No segments</div>
+        </div>
+        <div class="split-bar" id="columnSplitBar" title="Drag to resize columns"></div>
       </section>
     </div>
     <script type="module" src="/src/output.js"></script>
