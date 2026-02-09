@@ -5,7 +5,7 @@ use crate::audio::speaker::SpeakerDiarizer;
 use crate::audio::writer::SegmentWriter;
 use crate::audio::wasapi::LoopbackCapture;
 use crate::transcribe::{transcribe_file, transcribe_with_whisper_server};
-use crate::translate::{translate_text, translate_text_batch, BatchTranslationItem};
+use crate::translate::{translate_text, translate_text_batch, BatchTranslationItem, TranslateSource};
 use chrono::Local;
 use hound::{SampleFormat, WavSpec, WavWriter};
 use serde::{Deserialize, Serialize};
@@ -1009,7 +1009,7 @@ fn translate_segment_provider_group(
   let provider = requests.first().and_then(|request| request.provider.clone());
   let started_at = Instant::now();
   let batch_result = tauri::async_runtime::block_on(async {
-    translate_text_batch(&batch_items, provider.clone()).await
+    translate_text_batch(&batch_items, provider.clone(), TranslateSource::Segment).await
   });
 
   match batch_result {
@@ -1459,7 +1459,7 @@ fn translate_segment_now(
 
   let started_at = Instant::now();
   let translation = match tauri::async_runtime::block_on(async {
-    translate_text(&transcript, request.provider.clone()).await
+    translate_text(&transcript, request.provider.clone(), TranslateSource::Segment).await
   }) {
     Ok(text) => Some(text),
     Err(err) => {

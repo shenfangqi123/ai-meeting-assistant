@@ -408,7 +408,7 @@ async fn translate_live(
   } else if provider == "openai" || provider == "chatgpt" {
     stream_translate_with_openai(&app, &id, order, &source, &target, &config).await
   } else {
-    translate::translate_text(&source, Some(provider.clone())).await
+    translate::translate_text(&source, Some(provider.clone()), translate::TranslateSource::Live).await
   };
 
   match result {

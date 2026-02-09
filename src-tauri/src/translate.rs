@@ -16,9 +16,30 @@ pub struct BatchTranslationItem {
   pub text: String,
 }
 
-fn log_translate_request_body(provider: &str, mode: &str, body: &serde_json::Value) {
+#[derive(Debug, Clone, Copy)]
+pub enum TranslateSource {
+  Segment,
+  Live,
+}
+
+impl TranslateSource {
+  fn as_str(self) -> &'static str {
+    match self {
+      Self::Segment => "segment",
+      Self::Live => "live",
+    }
+  }
+}
+
+fn log_translate_request_body(
+  source: TranslateSource,
+  provider: &str,
+  mode: &str,
+  body: &serde_json::Value,
+) {
   eprintln!(
-    "[translate-api] provider={} mode={} request_body={}",
+    "[translate-api] source={} provider={} mode={} request_body={}",
+    source.as_str(),
     provider,
     mode,
     body
@@ -28,13 +49,14 @@ fn log_translate_request_body(provider: &str, mode: &str, body: &serde_json::Val
 pub async fn translate_text(
   text: &str,
   provider_override: Option<String>,
+  source: TranslateSource,
 ) -> Result<String, String> {
   let config = load_config()?;
   let (provider, target_language) = resolve_translate_settings(&config, provider_override)?;
 
   match provider.as_str() {
-    "openai" | "chatgpt" => translate_with_openai(text, &target_language, &config).await,
-    "ollama" => translate_with_ollama(text, &target_language, &config).await,
+    "openai" | "chatgpt" => translate_with_openai(text, &target_language, &config, source).await,
+    "ollama" => translate_with_ollama(text, &target_language, &config, source).await,
     other => Err(format!("unsupported translate provider: {other}")),
   }
 }
@@ -42,6 +64,7 @@ pub async fn translate_text(
 pub async fn translate_text_batch(
   items: &[BatchTranslationItem],
   provider_override: Option<String>,
+  source: TranslateSource,
 ) -> Result<HashMap<String, String>, String> {
   if items.is_empty() {
     return Ok(HashMap::new());
@@ -52,9 +75,9 @@ pub async fn translate_text_batch(
 
   let translations = match provider.as_str() {
     "openai" | "chatgpt" => {
-      translate_batch_with_openai(items, &target_language, &config).await?
+      translate_batch_with_openai(items, &target_language, &config, source).await?
     }
-    "ollama" => translate_batch_with_ollama(items, &target_language, &config).await?,
+    "ollama" => translate_batch_with_ollama(items, &target_language, &config, source).await?,
     other => return Err(format!("unsupported translate provider: {other}")),
   };
 
@@ -69,6 +92,7 @@ async fn translate_with_openai(
   text: &str,
   target_language: &str,
   config: &crate::app_config::AppConfig,
+  source: TranslateSource,
 ) -> Result<String, String> {
   let openai = &config.openai;
   let api_key = openai.api_key.trim();
@@ -110,12 +134,13 @@ async fn translate_with_openai(
     ],
     "temperature": 0.2
   });
-  log_translate_request_body("openai", "single", &body);
+  log_translate_request_body(source, "openai", "single", &body);
 
   let endpoint = base_url.trim_end_matches('/').to_string();
   let started_at = Instant::now();
   eprintln!(
-    "[translate-api] provider=openai mode=single model={} endpoint={} target={} items=1 chars={}",
+    "[translate-api] source={} provider=openai mode=single model={} endpoint={} target={} items=1 chars={}",
+    source.as_str(),
     model,
     endpoint,
     target_language,
@@ -132,7 +157,8 @@ async fn translate_with_openai(
     Ok(response) => response,
     Err(err) => {
       eprintln!(
-        "[translate-api] provider=openai mode=single result=network_error elapsed_ms={} error={}",
+        "[translate-api] source={} provider=openai mode=single result=network_error elapsed_ms={} error={}",
+        source.as_str(),
         started_at.elapsed().as_millis(),
         err
       );
@@ -145,7 +171,8 @@ async fn translate_with_openai(
     Ok(value) => value,
     Err(err) => {
       eprintln!(
-        "[translate-api] provider=openai mode=single result=parse_error elapsed_ms={} status={} error={}",
+        "[translate-api] source={} provider=openai mode=single result=parse_error elapsed_ms={} status={} error={}",
+        source.as_str(),
         started_at.elapsed().as_millis(),
         status.as_u16(),
         err
@@ -154,7 +181,8 @@ async fn translate_with_openai(
     }
   };
   eprintln!(
-    "[translate-api] provider=openai mode=single result=response elapsed_ms={} status={}",
+    "[translate-api] source={} provider=openai mode=single result=response elapsed_ms={} status={}",
+    source.as_str(),
     started_at.elapsed().as_millis(),
     status.as_u16()
   );
@@ -169,6 +197,7 @@ async fn translate_with_ollama(
   text: &str,
   target_language: &str,
   config: &crate::app_config::AppConfig,
+  source: TranslateSource,
 ) -> Result<String, String> {
   let ollama = config.ollama.clone().unwrap_or_else(|| crate::app_config::OllamaConfig {
     enabled: Some(true),
@@ -200,7 +229,7 @@ async fn translate_with_ollama(
     "prompt": prompt,
     "stream": false
   });
-  log_translate_request_body("ollama", "single", &body);
+  log_translate_request_body(source, "ollama", "single", &body);
 
   let client = Client::builder()
     .timeout(Duration::from_secs(timeout_secs))
@@ -209,7 +238,8 @@ async fn translate_with_ollama(
 
   let started_at = Instant::now();
   eprintln!(
-    "[translate-api] provider=ollama mode=single model={} endpoint={} target={} items=1 chars={}",
+    "[translate-api] source={} provider=ollama mode=single model={} endpoint={} target={} items=1 chars={}",
+    source.as_str(),
     model,
     url,
     target_language,
@@ -220,7 +250,8 @@ async fn translate_with_ollama(
     Ok(response) => response,
     Err(err) => {
       eprintln!(
-        "[translate-api] provider=ollama mode=single result=network_error elapsed_ms={} error={}",
+        "[translate-api] source={} provider=ollama mode=single result=network_error elapsed_ms={} error={}",
+        source.as_str(),
         started_at.elapsed().as_millis(),
         err
       );
@@ -233,7 +264,8 @@ async fn translate_with_ollama(
     Ok(value) => value,
     Err(err) => {
       eprintln!(
-        "[translate-api] provider=ollama mode=single result=parse_error elapsed_ms={} status={} error={}",
+        "[translate-api] source={} provider=ollama mode=single result=parse_error elapsed_ms={} status={} error={}",
+        source.as_str(),
         started_at.elapsed().as_millis(),
         status.as_u16(),
         err
@@ -242,7 +274,8 @@ async fn translate_with_ollama(
     }
   };
   eprintln!(
-    "[translate-api] provider=ollama mode=single result=response elapsed_ms={} status={}",
+    "[translate-api] source={} provider=ollama mode=single result=response elapsed_ms={} status={}",
+    source.as_str(),
     started_at.elapsed().as_millis(),
     status.as_u16()
   );
@@ -291,6 +324,7 @@ async fn translate_batch_with_openai(
   items: &[BatchTranslationItem],
   target_language: &str,
   config: &AppConfig,
+  source: TranslateSource,
 ) -> Result<HashMap<String, String>, String> {
   let openai = &config.openai;
   let api_key = openai.api_key.trim();
@@ -341,7 +375,7 @@ Each element must be {{\"id\": string, \"translation\": string}}."
     ],
     "temperature": 0.1
   });
-  log_translate_request_body("openai", "batch", &body);
+  log_translate_request_body(source, "openai", "batch", &body);
 
   let client = Client::builder()
     .timeout(Duration::from_secs(timeout_secs))
@@ -352,7 +386,8 @@ Each element must be {{\"id\": string, \"translation\": string}}."
   let started_at = Instant::now();
   let batch_chars: usize = items.iter().map(|item| item.text.chars().count()).sum();
   eprintln!(
-    "[translate-api] provider=openai mode=batch model={} endpoint={} target={} items={} chars={}",
+    "[translate-api] source={} provider=openai mode=batch model={} endpoint={} target={} items={} chars={}",
+    source.as_str(),
     model,
     endpoint,
     target_language,
@@ -370,7 +405,8 @@ Each element must be {{\"id\": string, \"translation\": string}}."
     Ok(response) => response,
     Err(err) => {
       eprintln!(
-        "[translate-api] provider=openai mode=batch result=network_error elapsed_ms={} error={}",
+        "[translate-api] source={} provider=openai mode=batch result=network_error elapsed_ms={} error={}",
+        source.as_str(),
         started_at.elapsed().as_millis(),
         err
       );
@@ -383,7 +419,8 @@ Each element must be {{\"id\": string, \"translation\": string}}."
     Ok(value) => value,
     Err(err) => {
       eprintln!(
-        "[translate-api] provider=openai mode=batch result=parse_error elapsed_ms={} status={} error={}",
+        "[translate-api] source={} provider=openai mode=batch result=parse_error elapsed_ms={} status={} error={}",
+        source.as_str(),
         started_at.elapsed().as_millis(),
         status.as_u16(),
         err
@@ -392,7 +429,8 @@ Each element must be {{\"id\": string, \"translation\": string}}."
     }
   };
   eprintln!(
-    "[translate-api] provider=openai mode=batch result=response elapsed_ms={} status={} items={}",
+    "[translate-api] source={} provider=openai mode=batch result=response elapsed_ms={} status={} items={}",
+    source.as_str(),
     started_at.elapsed().as_millis(),
     status.as_u16(),
     items.len()
@@ -410,6 +448,7 @@ async fn translate_batch_with_ollama(
   items: &[BatchTranslationItem],
   target_language: &str,
   config: &AppConfig,
+  source: TranslateSource,
 ) -> Result<HashMap<String, String>, String> {
   let ollama = config.ollama.clone().unwrap_or_else(|| crate::app_config::OllamaConfig {
     enabled: Some(true),
@@ -454,7 +493,7 @@ Each element must be {{\"id\": string, \"translation\": string}}.\n\n{payload}"
     "prompt": prompt,
     "stream": false
   });
-  log_translate_request_body("ollama", "batch", &body);
+  log_translate_request_body(source, "ollama", "batch", &body);
 
   let client = Client::builder()
     .timeout(Duration::from_secs(timeout_secs))
@@ -464,7 +503,8 @@ Each element must be {{\"id\": string, \"translation\": string}}.\n\n{payload}"
   let started_at = Instant::now();
   let batch_chars: usize = items.iter().map(|item| item.text.chars().count()).sum();
   eprintln!(
-    "[translate-api] provider=ollama mode=batch model={} endpoint={} target={} items={} chars={}",
+    "[translate-api] source={} provider=ollama mode=batch model={} endpoint={} target={} items={} chars={}",
+    source.as_str(),
     model,
     url,
     target_language,
@@ -476,7 +516,8 @@ Each element must be {{\"id\": string, \"translation\": string}}.\n\n{payload}"
     Ok(response) => response,
     Err(err) => {
       eprintln!(
-        "[translate-api] provider=ollama mode=batch result=network_error elapsed_ms={} error={}",
+        "[translate-api] source={} provider=ollama mode=batch result=network_error elapsed_ms={} error={}",
+        source.as_str(),
         started_at.elapsed().as_millis(),
         err
       );
@@ -489,7 +530,8 @@ Each element must be {{\"id\": string, \"translation\": string}}.\n\n{payload}"
     Ok(value) => value,
     Err(err) => {
       eprintln!(
-        "[translate-api] provider=ollama mode=batch result=parse_error elapsed_ms={} status={} error={}",
+        "[translate-api] source={} provider=ollama mode=batch result=parse_error elapsed_ms={} status={} error={}",
+        source.as_str(),
         started_at.elapsed().as_millis(),
         status.as_u16(),
         err
@@ -498,7 +540,8 @@ Each element must be {{\"id\": string, \"translation\": string}}.\n\n{payload}"
     }
   };
   eprintln!(
-    "[translate-api] provider=ollama mode=batch result=response elapsed_ms={} status={} items={}",
+    "[translate-api] source={} provider=ollama mode=batch result=response elapsed_ms={} status={} items={}",
+    source.as_str(),
     started_at.elapsed().as_millis(),
     status.as_u16(),
     items.len()
