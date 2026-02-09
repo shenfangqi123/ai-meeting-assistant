@@ -2,7 +2,7 @@ use crate::app_config::{load_config, AppConfig, TranslateConfig};
 use reqwest::Client;
 use serde_json::json;
 use std::collections::HashMap;
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 const DEFAULT_OPENAI_CHAT_MODEL: &str = "gpt-4.1-mini";
 const DEFAULT_OPENAI_CHAT_BASE_URL: &str = "https://api.openai.com/v1/responses";
@@ -31,18 +31,26 @@ impl TranslateSource {
   }
 }
 
-fn log_translate_request_body(
+fn log_translate_request(
   source: TranslateSource,
   provider: &str,
   mode: &str,
-  body: &serde_json::Value,
+  endpoint: &str,
+  model: &str,
+  target: &str,
+  items: usize,
+  chars: usize,
 ) {
   eprintln!(
-    "[translate-api] source={} provider={} mode={} request_body={}",
+    "[translate-request] source={} provider={} mode={} model={} endpoint={} target={} items={} chars={}",
     source.as_str(),
     provider,
     mode,
-    body
+    model,
+    endpoint,
+    target,
+    items,
+    chars
   );
 }
 
@@ -134,17 +142,16 @@ async fn translate_with_openai(
     ],
     "temperature": 0.2
   });
-  log_translate_request_body(source, "openai", "single", &body);
-
   let endpoint = base_url.trim_end_matches('/').to_string();
-  let started_at = Instant::now();
-  eprintln!(
-    "[translate-api] source={} provider=openai mode=single model={} endpoint={} target={} items=1 chars={}",
-    source.as_str(),
-    model,
-    endpoint,
+  log_translate_request(
+    source,
+    "openai",
+    "single",
+    endpoint.as_str(),
+    model.as_str(),
     target_language,
-    text.chars().count()
+    1,
+    text.chars().count(),
   );
 
   let response = match client
@@ -155,37 +162,14 @@ async fn translate_with_openai(
     .await
   {
     Ok(response) => response,
-    Err(err) => {
-      eprintln!(
-        "[translate-api] source={} provider=openai mode=single result=network_error elapsed_ms={} error={}",
-        source.as_str(),
-        started_at.elapsed().as_millis(),
-        err
-      );
-      return Err(err.to_string());
-    }
+    Err(err) => return Err(err.to_string()),
   };
 
   let status = response.status();
   let value: serde_json::Value = match response.json().await {
     Ok(value) => value,
-    Err(err) => {
-      eprintln!(
-        "[translate-api] source={} provider=openai mode=single result=parse_error elapsed_ms={} status={} error={}",
-        source.as_str(),
-        started_at.elapsed().as_millis(),
-        status.as_u16(),
-        err
-      );
-      return Err(err.to_string());
-    }
+    Err(err) => return Err(err.to_string()),
   };
-  eprintln!(
-    "[translate-api] source={} provider=openai mode=single result=response elapsed_ms={} status={}",
-    source.as_str(),
-    started_at.elapsed().as_millis(),
-    status.as_u16()
-  );
   if !status.is_success() {
     return Err(value.to_string());
   }
@@ -229,56 +213,33 @@ async fn translate_with_ollama(
     "prompt": prompt,
     "stream": false
   });
-  log_translate_request_body(source, "ollama", "single", &body);
 
   let client = Client::builder()
     .timeout(Duration::from_secs(timeout_secs))
     .build()
     .map_err(|err| err.to_string())?;
 
-  let started_at = Instant::now();
-  eprintln!(
-    "[translate-api] source={} provider=ollama mode=single model={} endpoint={} target={} items=1 chars={}",
-    source.as_str(),
-    model,
-    url,
+  log_translate_request(
+    source,
+    "ollama",
+    "single",
+    url.as_str(),
+    model.as_str(),
     target_language,
-    text.chars().count()
+    1,
+    text.chars().count(),
   );
 
   let response = match client.post(url.as_str()).json(&body).send().await {
     Ok(response) => response,
-    Err(err) => {
-      eprintln!(
-        "[translate-api] source={} provider=ollama mode=single result=network_error elapsed_ms={} error={}",
-        source.as_str(),
-        started_at.elapsed().as_millis(),
-        err
-      );
-      return Err(err.to_string());
-    }
+    Err(err) => return Err(err.to_string()),
   };
 
   let status = response.status();
   let value: serde_json::Value = match response.json().await {
     Ok(value) => value,
-    Err(err) => {
-      eprintln!(
-        "[translate-api] source={} provider=ollama mode=single result=parse_error elapsed_ms={} status={} error={}",
-        source.as_str(),
-        started_at.elapsed().as_millis(),
-        status.as_u16(),
-        err
-      );
-      return Err(err.to_string());
-    }
+    Err(err) => return Err(err.to_string()),
   };
-  eprintln!(
-    "[translate-api] source={} provider=ollama mode=single result=response elapsed_ms={} status={}",
-    source.as_str(),
-    started_at.elapsed().as_millis(),
-    status.as_u16()
-  );
   if !status.is_success() {
     return Err(value.to_string());
   }
@@ -375,7 +336,6 @@ Each element must be {{\"id\": string, \"translation\": string}}."
     ],
     "temperature": 0.1
   });
-  log_translate_request_body(source, "openai", "batch", &body);
 
   let client = Client::builder()
     .timeout(Duration::from_secs(timeout_secs))
@@ -383,16 +343,16 @@ Each element must be {{\"id\": string, \"translation\": string}}."
     .map_err(|err| err.to_string())?;
 
   let endpoint = base_url.trim_end_matches('/').to_string();
-  let started_at = Instant::now();
   let batch_chars: usize = items.iter().map(|item| item.text.chars().count()).sum();
-  eprintln!(
-    "[translate-api] source={} provider=openai mode=batch model={} endpoint={} target={} items={} chars={}",
-    source.as_str(),
-    model,
-    endpoint,
+  log_translate_request(
+    source,
+    "openai",
+    "batch",
+    endpoint.as_str(),
+    model.as_str(),
     target_language,
     items.len(),
-    batch_chars
+    batch_chars,
   );
 
   let response = match client
@@ -403,38 +363,14 @@ Each element must be {{\"id\": string, \"translation\": string}}."
     .await
   {
     Ok(response) => response,
-    Err(err) => {
-      eprintln!(
-        "[translate-api] source={} provider=openai mode=batch result=network_error elapsed_ms={} error={}",
-        source.as_str(),
-        started_at.elapsed().as_millis(),
-        err
-      );
-      return Err(err.to_string());
-    }
+    Err(err) => return Err(err.to_string()),
   };
 
   let status = response.status();
   let value: serde_json::Value = match response.json().await {
     Ok(value) => value,
-    Err(err) => {
-      eprintln!(
-        "[translate-api] source={} provider=openai mode=batch result=parse_error elapsed_ms={} status={} error={}",
-        source.as_str(),
-        started_at.elapsed().as_millis(),
-        status.as_u16(),
-        err
-      );
-      return Err(err.to_string());
-    }
+    Err(err) => return Err(err.to_string()),
   };
-  eprintln!(
-    "[translate-api] source={} provider=openai mode=batch result=response elapsed_ms={} status={} items={}",
-    source.as_str(),
-    started_at.elapsed().as_millis(),
-    status.as_u16(),
-    items.len()
-  );
   if !status.is_success() {
     return Err(value.to_string());
   }
@@ -493,59 +429,34 @@ Each element must be {{\"id\": string, \"translation\": string}}.\n\n{payload}"
     "prompt": prompt,
     "stream": false
   });
-  log_translate_request_body(source, "ollama", "batch", &body);
 
   let client = Client::builder()
     .timeout(Duration::from_secs(timeout_secs))
     .build()
     .map_err(|err| err.to_string())?;
 
-  let started_at = Instant::now();
   let batch_chars: usize = items.iter().map(|item| item.text.chars().count()).sum();
-  eprintln!(
-    "[translate-api] source={} provider=ollama mode=batch model={} endpoint={} target={} items={} chars={}",
-    source.as_str(),
-    model,
-    url,
+  log_translate_request(
+    source,
+    "ollama",
+    "batch",
+    url.as_str(),
+    model.as_str(),
     target_language,
     items.len(),
-    batch_chars
+    batch_chars,
   );
 
   let response = match client.post(url.as_str()).json(&body).send().await {
     Ok(response) => response,
-    Err(err) => {
-      eprintln!(
-        "[translate-api] source={} provider=ollama mode=batch result=network_error elapsed_ms={} error={}",
-        source.as_str(),
-        started_at.elapsed().as_millis(),
-        err
-      );
-      return Err(err.to_string());
-    }
+    Err(err) => return Err(err.to_string()),
   };
 
   let status = response.status();
   let value: serde_json::Value = match response.json().await {
     Ok(value) => value,
-    Err(err) => {
-      eprintln!(
-        "[translate-api] source={} provider=ollama mode=batch result=parse_error elapsed_ms={} status={} error={}",
-        source.as_str(),
-        started_at.elapsed().as_millis(),
-        status.as_u16(),
-        err
-      );
-      return Err(err.to_string());
-    }
+    Err(err) => return Err(err.to_string()),
   };
-  eprintln!(
-    "[translate-api] source={} provider=ollama mode=batch result=response elapsed_ms={} status={} items={}",
-    source.as_str(),
-    started_at.elapsed().as_millis(),
-    status.as_u16(),
-    items.len()
-  );
   if !status.is_success() {
     return Err(value.to_string());
   }
