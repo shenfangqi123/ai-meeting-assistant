@@ -748,9 +748,9 @@ const updateSplitDrag = (event) => {
 
   if (draggingSplit === "main") {
     if (!(translateEnabled || questionsEnabled)) return;
-    const { paddingLeft, contentWidth } = getBoardMetrics();
+    const { contentWidth } = getBoardMetrics();
     if (contentWidth <= 0) return;
-    const offsetX = event.clientX - bounds.left - paddingLeft;
+    const offsetX = event.clientX - bounds.left;
     const ratio = clamp(offsetX / contentWidth, MIN_MAIN_SPLIT_RATIO, MAX_MAIN_SPLIT_RATIO);
     setMainSplitRatio(ratio);
     return;
@@ -758,14 +758,14 @@ const updateSplitDrag = (event) => {
 
   if (draggingSplit === "question") {
     if (!(translateEnabled && questionsEnabled)) return;
-    const { paddingLeft, contentWidth } = getBoardMetrics();
+    const { contentWidth } = getBoardMetrics();
     if (contentWidth <= 0) return;
     const leftRatio = clamp(mainSplitRatio, MIN_MAIN_SPLIT_RATIO, MAX_MAIN_SPLIT_RATIO);
     const leftWidth = contentWidth * leftRatio;
     const rightStartPx = leftWidth + SPLIT_BAR_PIXEL_WIDTH;
     const movableWidth = contentWidth - rightStartPx - SPLIT_BAR_PIXEL_WIDTH;
     if (movableWidth <= 0) return;
-    const relativeX = event.clientX - bounds.left - paddingLeft - rightStartPx;
+    const relativeX = event.clientX - bounds.left - rightStartPx;
     const ratio = clamp(
       relativeX / movableWidth,
       MIN_QUESTION_SPLIT_RATIO,
