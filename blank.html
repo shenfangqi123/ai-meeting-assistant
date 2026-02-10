@@ -81,12 +81,23 @@
         min-height: 0;
         --left-width: 52%;
         --split-width: 12px;
-        --right-width: calc(100% - var(--left-width) - var(--split-width));
+        --right-panel-width: calc(100% - var(--left-width) - var(--split-width));
+        --middle-share: 0.5;
+        --split-right-width: 12px;
+        --middle-width: calc((var(--right-panel-width) - var(--split-right-width)) * var(--middle-share));
+        --question-width: calc(
+          (var(--right-panel-width) - var(--split-right-width)) * (1 - var(--middle-share))
+        );
       }
 
       .board-header {
         display: grid;
-        grid-template-columns: minmax(0, var(--left-width)) var(--split-width) minmax(0, var(--right-width));
+        grid-template-columns:
+          minmax(0, var(--left-width))
+          var(--split-width)
+          minmax(0, var(--middle-width))
+          var(--split-right-width)
+          minmax(0, var(--question-width));
         align-items: center;
         gap: 0;
         min-height: 28px;
@@ -108,7 +119,12 @@
       .live-row,
       .segment-row {
         display: grid;
-        grid-template-columns: minmax(0, var(--left-width)) var(--split-width) minmax(0, var(--right-width));
+        grid-template-columns:
+          minmax(0, var(--left-width))
+          var(--split-width)
+          minmax(0, var(--middle-width))
+          var(--split-right-width)
+          minmax(0, var(--question-width));
         gap: 8px;
         border-radius: 10px;
         border: 1px solid transparent;
@@ -226,11 +242,11 @@
         accent-color: var(--accent);
       }
 
-      .split-bar {
+      .split-bar-main,
+      .split-bar-question {
         position: absolute;
         top: 0;
         bottom: 0;
-        left: var(--left-width);
         width: var(--split-width);
         background: linear-gradient(to bottom, #f4a1af, var(--pink-bar), #f4a1af);
         border-left: 1px solid rgba(42, 36, 31, 0.12);
@@ -239,14 +255,58 @@
         z-index: 6;
       }
 
-      .board.translation-hidden {
-        --left-width: 100%;
-        --split-width: 0px;
+      .split-bar-main {
+        left: var(--left-width);
       }
 
-      .board.translation-hidden .translation-cell,
-      .board.translation-hidden .column-title.translation,
-      .board.translation-hidden .split-bar {
+      .split-bar-question {
+        left: calc(var(--left-width) + var(--split-width) + var(--middle-width));
+        width: var(--split-right-width);
+      }
+
+      .board.no-secondary {
+        --left-width: 100%;
+        --split-width: 0px;
+        --right-panel-width: 0px;
+        --split-right-width: 0px;
+        --middle-width: 0px;
+        --question-width: 0px;
+      }
+
+      .board.translation-hidden:not(.questions-hidden) {
+        --split-right-width: 0px;
+        --middle-width: 0px;
+        --question-width: var(--right-panel-width);
+      }
+
+      .board.questions-hidden:not(.translation-hidden) {
+        --split-right-width: 0px;
+        --middle-width: var(--right-panel-width);
+        --question-width: 0px;
+      }
+
+      .board.no-secondary .translation-cell,
+      .board.no-secondary .question-cell,
+      .board.no-secondary .column-title.translation,
+      .board.no-secondary .column-title.questions,
+      .board.no-secondary .divider-main,
+      .board.no-secondary .divider-right,
+      .board.no-secondary .split-bar-main,
+      .board.no-secondary .split-bar-question {
+        display: none;
+      }
+
+      .board.translation-hidden:not(.questions-hidden) .translation-cell,
+      .board.translation-hidden:not(.questions-hidden) .column-title.translation,
+      .board.translation-hidden:not(.questions-hidden) .divider-right,
+      .board.translation-hidden:not(.questions-hidden) .split-bar-question {
+        display: none;
+      }
+
+      .board.questions-hidden:not(.translation-hidden) .question-cell,
+      .board.questions-hidden:not(.translation-hidden) .column-title.questions,
+      .board.questions-hidden:not(.translation-hidden) .divider-right,
+      .board.questions-hidden:not(.translation-hidden) .split-bar-question {
         display: none;
       }
 
@@ -263,16 +323,22 @@
             Translate
           </label>
           <label class="toggle">
+            <input id="questionsToggle" type="checkbox" />
+            Questions
+          </label>
+          <label class="toggle">
             <input id="autoScrollToggle" type="checkbox" />
             Auto Scroll
           </label>
         </div>
       </header>
-      <section class="board translation-hidden" id="segmentBoard">
+      <section class="board translation-hidden questions-hidden no-secondary" id="segmentBoard">
         <div class="board-header">
           <div class="column-title">Transcription</div>
-          <div class="split-slot"></div>
+          <div class="split-slot divider-main"></div>
           <div class="column-title translation">Live Translation</div>
+          <div class="split-slot divider-right"></div>
+          <div class="column-title questions">问题</div>
         </div>
         <article class="live-row" id="liveRow">
           <div class="cell transcript-cell">
@@ -282,16 +348,19 @@
             </div>
             <div class="entry-text live-partial" id="livePartial" data-state="pending"></div>
           </div>
-          <div class="divider-cell"></div>
+          <div class="divider-cell divider-main"></div>
           <div class="cell translation-cell">
             <div class="live-title">live-final</div>
             <div class="entry-text live-final" id="liveFinal" data-state="pending"></div>
           </div>
+          <div class="divider-cell divider-right"></div>
+          <div class="cell question-cell"></div>
         </article>
         <div class="segment-list" id="segmentList">
           <div class="empty" id="emptyHint">No segments</div>
         </div>
-        <div class="split-bar" id="columnSplitBar" title="Drag to resize columns"></div>
+        <div class="split-bar-main" id="columnSplitBar" title="Drag to resize columns"></div>
+        <div class="split-bar-question" id="questionSplitBar" title="Drag to resize question panel"></div>
       </section>
     </div>
     <script type="module" src="/src/output.js"></script>

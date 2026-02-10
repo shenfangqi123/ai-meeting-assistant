@@ -7,7 +7,9 @@ const statusEl = document.getElementById("segmentStatus");
 const headerPromptEl = document.getElementById("headerPrompt");
 const boardEl = document.getElementById("segmentBoard");
 const splitBarEl = document.getElementById("columnSplitBar");
+const questionSplitBarEl = document.getElementById("questionSplitBar");
 const translateToggle = document.getElementById("translateToggle");
+const questionsToggle = document.getElementById("questionsToggle");
 const autoScrollToggle = document.getElementById("autoScrollToggle");
 
 const liveFinalEl = document.getElementById("liveFinal");
@@ -15,11 +17,16 @@ const livePartialEl = document.getElementById("livePartial");
 const liveMetaEl = document.getElementById("liveMeta");
 const liveSpeakerEl = document.getElementById("liveSpeaker");
 
-const SPLIT_STORAGE_KEY = "segment_board_split_ratio";
+const MAIN_SPLIT_STORAGE_KEY = "segment_board_main_split_ratio";
+const QUESTION_SPLIT_STORAGE_KEY = "segment_board_question_split_ratio";
 const AUTO_SCROLL_STORAGE_KEY = "segment_auto_scroll_enabled";
-const DEFAULT_SPLIT_RATIO = 0.52;
-const MIN_SPLIT_RATIO = 0.28;
-const MAX_SPLIT_RATIO = 0.72;
+const DEFAULT_MAIN_SPLIT_RATIO = 0.52;
+const MIN_MAIN_SPLIT_RATIO = 0.28;
+const MAX_MAIN_SPLIT_RATIO = 0.72;
+const DEFAULT_QUESTION_SPLIT_RATIO = 0.5;
+const MIN_QUESTION_SPLIT_RATIO = 0.2;
+const MAX_QUESTION_SPLIT_RATIO = 0.8;
+const SPLIT_BAR_PIXEL_WIDTH = 12;
 
 const segmentMap = new Map();
 const rowTranslationRequested = new Set();
@@ -28,12 +35,15 @@ const translationInvokeQueued = new Set();
 const TRANSLATION_INVOKE_INTERVAL_MS = 80;
 
 let translateEnabled = false;
+let questionsEnabled = false;
 let autoScrollEnabled = false;
-let draggingSplit = false;
+let draggingSplit = null;
 let translationInvokeRunning = false;
 let liveStreamOrder = Number.NEGATIVE_INFINITY;
 let liveStreamId = "";
 let liveStreamText = "";
+let mainSplitRatio = DEFAULT_MAIN_SPLIT_RATIO;
+let questionSplitRatio = DEFAULT_QUESTION_SPLIT_RATIO;
 
 const normalizeText = (value) => {
   if (!value) return "";
@@ -153,38 +163,79 @@ const loadAutoScrollEnabled = () => {
   }
 };
 
-const saveSplitRatio = (ratio) => {
+const saveMainSplitRatio = (ratio) => {
   try {
-    localStorage.setItem(SPLIT_STORAGE_KEY, String(ratio));
+    localStorage.setItem(MAIN_SPLIT_STORAGE_KEY, String(ratio));
   } catch (_) {
     // Ignore unavailable storage.
   }
 };
 
-const loadSplitRatio = () => {
+const loadMainSplitRatio = () => {
   try {
-    const raw = localStorage.getItem(SPLIT_STORAGE_KEY);
-    if (!raw) return DEFAULT_SPLIT_RATIO;
+    const raw = localStorage.getItem(MAIN_SPLIT_STORAGE_KEY);
+    if (!raw) return DEFAULT_MAIN_SPLIT_RATIO;
     const parsed = Number(raw);
-    if (!Number.isFinite(parsed)) return DEFAULT_SPLIT_RATIO;
-    return clamp(parsed, MIN_SPLIT_RATIO, MAX_SPLIT_RATIO);
+    if (!Number.isFinite(parsed)) return DEFAULT_MAIN_SPLIT_RATIO;
+    return clamp(parsed, MIN_MAIN_SPLIT_RATIO, MAX_MAIN_SPLIT_RATIO);
   } catch (_) {
-    return DEFAULT_SPLIT_RATIO;
+    return DEFAULT_MAIN_SPLIT_RATIO;
   }
 };
 
-const setSplitRatio = (ratio, persist = true) => {
+const saveQuestionSplitRatio = (ratio) => {
+  try {
+    localStorage.setItem(QUESTION_SPLIT_STORAGE_KEY, String(ratio));
+  } catch (_) {
+    // Ignore unavailable storage.
+  }
+};
+
+const loadQuestionSplitRatio = () => {
+  try {
+    const raw = localStorage.getItem(QUESTION_SPLIT_STORAGE_KEY);
+    if (!raw) return DEFAULT_QUESTION_SPLIT_RATIO;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return DEFAULT_QUESTION_SPLIT_RATIO;
+    return clamp(parsed, MIN_QUESTION_SPLIT_RATIO, MAX_QUESTION_SPLIT_RATIO);
+  } catch (_) {
+    return DEFAULT_QUESTION_SPLIT_RATIO;
+  }
+};
+
+const setMainSplitRatio = (ratio, persist = true) => {
   if (!boardEl) return;
-  const clamped = clamp(ratio, MIN_SPLIT_RATIO, MAX_SPLIT_RATIO);
+  const clamped = clamp(ratio, MIN_MAIN_SPLIT_RATIO, MAX_MAIN_SPLIT_RATIO);
+  mainSplitRatio = clamped;
   boardEl.style.setProperty("--left-width", `${(clamped * 100).toFixed(2)}%`);
   if (persist) {
-    saveSplitRatio(clamped);
+    saveMainSplitRatio(clamped);
   }
 };
 
-const setTranslationVisibility = (visible) => {
+const setQuestionSplitRatio = (ratio, persist = true) => {
   if (!boardEl) return;
-  boardEl.classList.toggle("translation-hidden", !visible);
+  const clamped = clamp(ratio, MIN_QUESTION_SPLIT_RATIO, MAX_QUESTION_SPLIT_RATIO);
+  questionSplitRatio = clamped;
+  boardEl.style.setProperty("--middle-share", `${clamped.toFixed(4)}`);
+  if (persist) {
+    saveQuestionSplitRatio(clamped);
+  }
+};
+
+const applyBoardLayout = () => {
+  if (!boardEl) return;
+  const hasSecondary = translateEnabled || questionsEnabled;
+  const dualPanels = translateEnabled && questionsEnabled;
+  boardEl.classList.toggle("translation-hidden", !translateEnabled);
+  boardEl.classList.toggle("questions-hidden", !questionsEnabled);
+  boardEl.classList.toggle("no-secondary", !hasSecondary);
+  if (hasSecondary) {
+    setMainSplitRatio(mainSplitRatio, false);
+  }
+  if (dualPanels) {
+    setQuestionSplitRatio(questionSplitRatio, false);
+  }
 };
 
 const updateStatus = () => {
@@ -244,9 +295,15 @@ const renderRowTranslation = (entry) => {
   }
 };
 
+const renderRowQuestion = (entry) => {
+  entry.questionEl.textContent = "";
+  entry.questionEl.dataset.state = "pending";
+};
+
 const renderRow = (entry) => {
   renderRowTranscript(entry);
   renderRowTranslation(entry);
+  renderRowQuestion(entry);
 };
 
 const clearQueuedRowTranslations = () => {
@@ -359,25 +416,39 @@ const createRow = (info) => {
 
   left.appendChild(transcriptEl);
 
-  const divider = document.createElement("div");
-  divider.className = "divider-cell";
+  const dividerMain = document.createElement("div");
+  dividerMain.className = "divider-cell divider-main";
 
-  const right = document.createElement("div");
-  right.className = "cell translation-cell";
+  const middle = document.createElement("div");
+  middle.className = "cell translation-cell";
 
   const translationEl = document.createElement("div");
   translationEl.className = "entry-text segment-translation";
 
-  right.appendChild(translationEl);
+  middle.appendChild(translationEl);
+
+  const dividerRight = document.createElement("div");
+  dividerRight.className = "divider-cell divider-right";
+
+  const right = document.createElement("div");
+  right.className = "cell question-cell";
+
+  const questionEl = document.createElement("div");
+  questionEl.className = "entry-text segment-question";
+
+  right.appendChild(questionEl);
 
   row.appendChild(left);
-  row.appendChild(divider);
+  row.appendChild(dividerMain);
+  row.appendChild(middle);
+  row.appendChild(dividerRight);
   row.appendChild(right);
 
   const entry = {
     row,
     transcriptEl,
     translationEl,
+    questionEl,
     info: {
       name: info.name,
       transcript: info.transcript,
@@ -470,19 +541,20 @@ const updateSegment = (info) => {
   }
 };
 
-const updateTranslateUi = () => {
+const updateBoardUi = () => {
   if (translateToggle) {
     translateToggle.checked = translateEnabled;
   }
-  setTranslationVisibility(translateEnabled);
-  if (translateEnabled) {
-    setSplitRatio(loadSplitRatio(), false);
-  } else {
+  if (questionsToggle) {
+    questionsToggle.checked = questionsEnabled;
+  }
+  applyBoardLayout();
+  if (!translateEnabled) {
     clearQueuedRowTranslations();
   }
 
   for (const entry of segmentMap.values()) {
-    renderRowTranslation(entry);
+    renderRow(entry);
   }
 
   if (translateEnabled) {
@@ -606,35 +678,66 @@ const handleLiveTranslationError = (payload) => {
   setLiveFinal(payload?.error || "Translation failed", "error");
 };
 
-const beginSplitDrag = (event) => {
-  if (!translateEnabled || !boardEl || !splitBarEl) return;
-  draggingSplit = true;
+const beginMainSplitDrag = (event) => {
+  if (!(translateEnabled || questionsEnabled) || !boardEl || !splitBarEl) return;
+  draggingSplit = "main";
   splitBarEl.setPointerCapture?.(event.pointerId);
   event.preventDefault();
 };
 
+const beginQuestionSplitDrag = (event) => {
+  if (!(translateEnabled && questionsEnabled) || !boardEl || !questionSplitBarEl) return;
+  draggingSplit = "question";
+  questionSplitBarEl.setPointerCapture?.(event.pointerId);
+  event.preventDefault();
+};
+
 const updateSplitDrag = (event) => {
-  if (!draggingSplit || !boardEl || !translateEnabled) return;
+  if (!draggingSplit || !boardEl) return;
   const bounds = boardEl.getBoundingClientRect();
   if (bounds.width <= 0) return;
 
-  const offsetX = event.clientX - bounds.left;
-  const ratio = clamp(offsetX / bounds.width, MIN_SPLIT_RATIO, MAX_SPLIT_RATIO);
-  setSplitRatio(ratio);
+  if (draggingSplit === "main") {
+    if (!(translateEnabled || questionsEnabled)) return;
+    const offsetX = event.clientX - bounds.left;
+    const ratio = clamp(offsetX / bounds.width, MIN_MAIN_SPLIT_RATIO, MAX_MAIN_SPLIT_RATIO);
+    setMainSplitRatio(ratio);
+    return;
+  }
+
+  if (draggingSplit === "question") {
+    if (!(translateEnabled && questionsEnabled)) return;
+    const rightStartPx = bounds.width * mainSplitRatio + SPLIT_BAR_PIXEL_WIDTH;
+    const movableWidth = bounds.width - rightStartPx - SPLIT_BAR_PIXEL_WIDTH;
+    if (movableWidth <= 0) return;
+    const relativeX = event.clientX - bounds.left - rightStartPx;
+    const ratio = clamp(
+      relativeX / movableWidth,
+      MIN_QUESTION_SPLIT_RATIO,
+      MAX_QUESTION_SPLIT_RATIO,
+    );
+    setQuestionSplitRatio(ratio);
+  }
 };
 
 const stopSplitDrag = () => {
-  draggingSplit = false;
+  draggingSplit = null;
 };
 
-splitBarEl?.addEventListener("pointerdown", beginSplitDrag);
+splitBarEl?.addEventListener("pointerdown", beginMainSplitDrag);
+questionSplitBarEl?.addEventListener("pointerdown", beginQuestionSplitDrag);
 window.addEventListener("pointermove", updateSplitDrag);
 window.addEventListener("pointerup", stopSplitDrag);
 window.addEventListener("pointercancel", stopSplitDrag);
 
 translateToggle?.addEventListener("change", () => {
   translateEnabled = !!translateToggle.checked;
-  updateTranslateUi();
+  updateBoardUi();
+});
+
+questionsToggle?.addEventListener("change", () => {
+  questionsEnabled = !!questionsToggle.checked;
+  updateBoardUi();
 });
 
 autoScrollToggle?.addEventListener("change", () => {
@@ -719,12 +822,15 @@ listen("live_translation_cleared", () => {
   resetLiveState();
 });
 
-setSplitRatio(loadSplitRatio(), false);
+mainSplitRatio = loadMainSplitRatio();
+questionSplitRatio = loadQuestionSplitRatio();
+setMainSplitRatio(mainSplitRatio, false);
+setQuestionSplitRatio(questionSplitRatio, false);
 autoScrollEnabled = loadAutoScrollEnabled();
 if (autoScrollToggle) {
   autoScrollToggle.checked = autoScrollEnabled;
 }
 resetLiveState();
-updateTranslateUi();
+updateBoardUi();
 updateStatus();
 void loadSegments();
