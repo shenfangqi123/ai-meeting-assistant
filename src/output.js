@@ -14,6 +14,9 @@ const liveFinalEl = document.getElementById("liveFinal");
 const livePartialEl = document.getElementById("livePartial");
 const liveMetaEl = document.getElementById("liveMeta");
 const liveSpeakerEl = document.getElementById("liveSpeaker");
+const questionModalEl = document.getElementById("questionModal");
+const questionModalTextEl = document.getElementById("questionModalText");
+const questionModalConfirmBtn = document.getElementById("questionModalConfirm");
 
 const SPLIT_STORAGE_KEY = "segment_board_split_ratio";
 const AUTO_SCROLL_STORAGE_KEY = "segment_auto_scroll_enabled";
@@ -34,6 +37,9 @@ let translationInvokeRunning = false;
 let liveStreamOrder = Number.NEGATIVE_INFINITY;
 let liveStreamId = "";
 let liveStreamText = "";
+let questionModalOpen = false;
+const questionQueue = [];
+const shownQuestionKeys = new Set();
 
 const normalizeText = (value) => {
   if (!value) return "";
@@ -44,6 +50,91 @@ const hasTranslationText = (value) => normalizeText(value).length > 0;
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+const normalizeQuestionKey = (value) => normalizeText(value).replace(/\s+/g, "").toLowerCase();
+
+const isLikelyQuestion = (sentence) => {
+  const text = normalizeText(sentence);
+  if (!text) return false;
+  if (/[?？]/.test(text)) return true;
+
+  const stripped = text.replace(/[。！？?!]+$/g, "");
+  if (!stripped) return false;
+  if (/(吗|嗎|么|麼|呢|嘛)$/.test(stripped)) return true;
+  if (/(ですか|でしょうか|ますか|ませんか|かな|かしら|ですかね)$/.test(stripped)) return true;
+  if (/^(请问|请教)/.test(stripped)) return true;
+  if (/(为什么|为何|怎么|怎么办|如何|何时|哪里|哪儿|谁|什么|是否|能否|可否)/.test(stripped)) {
+    return true;
+  }
+  return false;
+};
+
+const extractQuestionsFromText = (text) => {
+  const value = normalizeText(text);
+  if (!value) return [];
+
+  const parts = value.match(/[^。！？?!\n]+[。！？?!]?/g) || [value];
+  const found = [];
+  const inTextDedup = new Set();
+  for (const raw of parts) {
+    const sentence = normalizeText(raw);
+    if (!sentence || !isLikelyQuestion(sentence)) continue;
+    const key = normalizeQuestionKey(sentence);
+    if (!key || inTextDedup.has(key)) continue;
+    inTextDedup.add(key);
+    found.push(sentence);
+  }
+  return found;
+};
+
+const hideQuestionModal = () => {
+  if (!questionModalEl) return;
+  questionModalEl.classList.add("hidden");
+  questionModalEl.setAttribute("aria-hidden", "true");
+  questionModalOpen = false;
+  if (questionModalTextEl) {
+    questionModalTextEl.textContent = "";
+  }
+};
+
+const showNextQuestionModal = () => {
+  if (questionModalOpen || !questionModalEl || !questionModalTextEl) return;
+  const next = questionQueue.shift();
+  if (!next) return;
+
+  questionModalTextEl.textContent = next;
+  questionModalEl.classList.remove("hidden");
+  questionModalEl.setAttribute("aria-hidden", "false");
+  questionModalOpen = true;
+};
+
+const closeQuestionModal = () => {
+  hideQuestionModal();
+  showNextQuestionModal();
+};
+
+const enqueueQuestionModal = (question) => {
+  const text = normalizeText(question);
+  if (!text) return;
+  const key = normalizeQuestionKey(text);
+  if (!key || shownQuestionKeys.has(key)) return;
+  shownQuestionKeys.add(key);
+  questionQueue.push(text);
+  showNextQuestionModal();
+};
+
+const detectQuestionFromTranscript = (text) => {
+  const questions = extractQuestionsFromText(text);
+  for (const question of questions) {
+    enqueueQuestionModal(question);
+  }
+};
+
+const resetQuestionModalState = () => {
+  questionQueue.length = 0;
+  shownQuestionKeys.clear();
+  hideQuestionModal();
+};
 
 const setHeaderPrompt = (text) => {
   if (!headerPromptEl) return;
@@ -498,6 +589,7 @@ const clearSegmentsUi = () => {
     listEl.querySelectorAll(".segment-row").forEach((node) => node.remove());
   }
   resetLiveState();
+  resetQuestionModalState();
   updateStatus();
 };
 
@@ -533,6 +625,7 @@ const loadSegments = async () => {
 const applyWindowTranscript = (payload) => {
   const cleaned = normalizeText(payload?.text || "");
   setLivePartial(cleaned);
+  detectQuestionFromTranscript(cleaned);
 
   if (liveMetaEl) {
     const latency = Number.isFinite(payload?.elapsed_ms)
@@ -655,6 +748,7 @@ listen("segment_transcribed", (event) => {
   if (!event?.payload) return;
 
   updateSegment(event.payload);
+  detectQuestionFromTranscript(event.payload.transcript);
   if (translateEnabled) {
     const entry = segmentMap.get(event.payload.name);
     if (entry) {
@@ -717,6 +811,10 @@ listen("live_translation_error", (event) => {
 
 listen("live_translation_cleared", () => {
   resetLiveState();
+});
+
+questionModalConfirmBtn?.addEventListener("click", () => {
+  closeQuestionModal();
 });
 
 setSplitRatio(loadSplitRatio(), false);
