@@ -79,25 +79,23 @@
         position: relative;
         overflow: hidden;
         min-height: 0;
-        --left-width: 52%;
+        --left-width-px: 0px;
         --split-width: 12px;
-        --right-panel-width: calc(100% - var(--left-width) - var(--split-width));
-        --middle-share: 0.5;
+        --middle-width-px: 0px;
         --split-right-width: 12px;
-        --middle-width: calc((var(--right-panel-width) - var(--split-right-width)) * var(--middle-share));
-        --question-width: calc(
-          (var(--right-panel-width) - var(--split-right-width)) * (1 - var(--middle-share))
-        );
+        --question-width-px: 0px;
+        --main-bar-left-px: 0px;
+        --question-bar-left-px: 0px;
       }
 
       .board-header {
         display: grid;
         grid-template-columns:
-          minmax(0, var(--left-width))
+          minmax(0, var(--left-width-px))
           var(--split-width)
-          minmax(0, var(--middle-width))
+          minmax(0, var(--middle-width-px))
           var(--split-right-width)
-          minmax(0, var(--question-width));
+          minmax(0, var(--question-width-px));
         align-items: center;
         gap: 0;
         min-height: 28px;
@@ -120,11 +118,11 @@
       .segment-row {
         display: grid;
         grid-template-columns:
-          minmax(0, var(--left-width))
+          minmax(0, var(--left-width-px))
           var(--split-width)
-          minmax(0, var(--middle-width))
+          minmax(0, var(--middle-width-px))
           var(--split-right-width)
-          minmax(0, var(--question-width));
+          minmax(0, var(--question-width-px));
         gap: 8px;
         border-radius: 10px;
         border: 1px solid transparent;
@@ -256,33 +254,12 @@
       }
 
       .split-bar-main {
-        left: var(--left-width);
+        left: var(--main-bar-left-px);
       }
 
       .split-bar-question {
-        left: calc(var(--left-width) + var(--split-width) + var(--middle-width));
+        left: var(--question-bar-left-px);
         width: var(--split-right-width);
-      }
-
-      .board.no-secondary {
-        --left-width: 100%;
-        --split-width: 0px;
-        --right-panel-width: 0px;
-        --split-right-width: 0px;
-        --middle-width: 0px;
-        --question-width: 0px;
-      }
-
-      .board.translation-hidden:not(.questions-hidden) {
-        --split-right-width: 0px;
-        --middle-width: 0px;
-        --question-width: var(--right-panel-width);
-      }
-
-      .board.questions-hidden:not(.translation-hidden) {
-        --split-right-width: 0px;
-        --middle-width: var(--right-panel-width);
-        --question-width: 0px;
       }
 
       .board.no-secondary .translation-cell,

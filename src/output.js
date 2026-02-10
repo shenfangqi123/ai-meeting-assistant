@@ -55,6 +55,25 @@ const hasTranslationText = (value) => normalizeText(value).length > 0;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+const getBoardMetrics = () => {
+  if (!boardEl) {
+    return {
+      paddingLeft: 0,
+      paddingRight: 0,
+      contentWidth: 0,
+    };
+  }
+  const style = window.getComputedStyle(boardEl);
+  const paddingLeft = Number.parseFloat(style.paddingLeft) || 0;
+  const paddingRight = Number.parseFloat(style.paddingRight) || 0;
+  const contentWidth = Math.max(0, boardEl.clientWidth - paddingLeft - paddingRight);
+  return {
+    paddingLeft,
+    paddingRight,
+    contentWidth,
+  };
+};
+
 const setHeaderPrompt = (text) => {
   if (!headerPromptEl) return;
   const value = normalizeText(text);
@@ -204,38 +223,72 @@ const loadQuestionSplitRatio = () => {
 };
 
 const setMainSplitRatio = (ratio, persist = true) => {
-  if (!boardEl) return;
   const clamped = clamp(ratio, MIN_MAIN_SPLIT_RATIO, MAX_MAIN_SPLIT_RATIO);
   mainSplitRatio = clamped;
-  boardEl.style.setProperty("--left-width", `${(clamped * 100).toFixed(2)}%`);
   if (persist) {
     saveMainSplitRatio(clamped);
   }
+  syncBoardColumns();
 };
 
 const setQuestionSplitRatio = (ratio, persist = true) => {
-  if (!boardEl) return;
   const clamped = clamp(ratio, MIN_QUESTION_SPLIT_RATIO, MAX_QUESTION_SPLIT_RATIO);
   questionSplitRatio = clamped;
-  boardEl.style.setProperty("--middle-share", `${clamped.toFixed(4)}`);
   if (persist) {
     saveQuestionSplitRatio(clamped);
   }
+  syncBoardColumns();
+};
+
+const syncBoardColumns = () => {
+  if (!boardEl) return;
+  const { paddingLeft, contentWidth } = getBoardMetrics();
+  const hasSecondary = translateEnabled || questionsEnabled;
+  const dualPanels = translateEnabled && questionsEnabled;
+
+  let splitWidth = 0;
+  let splitRightWidth = 0;
+  let leftWidth = contentWidth;
+  let middleWidth = 0;
+  let questionWidth = 0;
+
+  if (hasSecondary) {
+    splitWidth = SPLIT_BAR_PIXEL_WIDTH;
+    const leftRatio = clamp(mainSplitRatio, MIN_MAIN_SPLIT_RATIO, MAX_MAIN_SPLIT_RATIO);
+    leftWidth = contentWidth * leftRatio;
+    const rightPanelWidth = Math.max(0, contentWidth - leftWidth - splitWidth);
+
+    if (dualPanels) {
+      splitRightWidth = SPLIT_BAR_PIXEL_WIDTH;
+      const secondaryTrackWidth = Math.max(0, rightPanelWidth - splitRightWidth);
+      const middleRatio = clamp(questionSplitRatio, MIN_QUESTION_SPLIT_RATIO, MAX_QUESTION_SPLIT_RATIO);
+      middleWidth = secondaryTrackWidth * middleRatio;
+      questionWidth = Math.max(0, secondaryTrackWidth - middleWidth);
+    } else if (translateEnabled) {
+      middleWidth = rightPanelWidth;
+    } else if (questionsEnabled) {
+      questionWidth = rightPanelWidth;
+    }
+  }
+
+  const mainBarLeft = paddingLeft + leftWidth;
+  const questionBarLeft = paddingLeft + leftWidth + splitWidth + middleWidth;
+  boardEl.style.setProperty("--left-width-px", `${leftWidth.toFixed(2)}px`);
+  boardEl.style.setProperty("--middle-width-px", `${middleWidth.toFixed(2)}px`);
+  boardEl.style.setProperty("--question-width-px", `${questionWidth.toFixed(2)}px`);
+  boardEl.style.setProperty("--split-width", `${splitWidth}px`);
+  boardEl.style.setProperty("--split-right-width", `${splitRightWidth}px`);
+  boardEl.style.setProperty("--main-bar-left-px", `${mainBarLeft.toFixed(2)}px`);
+  boardEl.style.setProperty("--question-bar-left-px", `${questionBarLeft.toFixed(2)}px`);
 };
 
 const applyBoardLayout = () => {
   if (!boardEl) return;
   const hasSecondary = translateEnabled || questionsEnabled;
-  const dualPanels = translateEnabled && questionsEnabled;
   boardEl.classList.toggle("translation-hidden", !translateEnabled);
   boardEl.classList.toggle("questions-hidden", !questionsEnabled);
   boardEl.classList.toggle("no-secondary", !hasSecondary);
-  if (hasSecondary) {
-    setMainSplitRatio(mainSplitRatio, false);
-  }
-  if (dualPanels) {
-    setQuestionSplitRatio(questionSplitRatio, false);
-  }
+  syncBoardColumns();
 };
 
 const updateStatus = () => {
@@ -699,18 +752,24 @@ const updateSplitDrag = (event) => {
 
   if (draggingSplit === "main") {
     if (!(translateEnabled || questionsEnabled)) return;
-    const offsetX = event.clientX - bounds.left;
-    const ratio = clamp(offsetX / bounds.width, MIN_MAIN_SPLIT_RATIO, MAX_MAIN_SPLIT_RATIO);
+    const { paddingLeft, contentWidth } = getBoardMetrics();
+    if (contentWidth <= 0) return;
+    const offsetX = event.clientX - bounds.left - paddingLeft;
+    const ratio = clamp(offsetX / contentWidth, MIN_MAIN_SPLIT_RATIO, MAX_MAIN_SPLIT_RATIO);
     setMainSplitRatio(ratio);
     return;
   }
 
   if (draggingSplit === "question") {
     if (!(translateEnabled && questionsEnabled)) return;
-    const rightStartPx = bounds.width * mainSplitRatio + SPLIT_BAR_PIXEL_WIDTH;
-    const movableWidth = bounds.width - rightStartPx - SPLIT_BAR_PIXEL_WIDTH;
+    const { paddingLeft, contentWidth } = getBoardMetrics();
+    if (contentWidth <= 0) return;
+    const leftRatio = clamp(mainSplitRatio, MIN_MAIN_SPLIT_RATIO, MAX_MAIN_SPLIT_RATIO);
+    const leftWidth = contentWidth * leftRatio;
+    const rightStartPx = leftWidth + SPLIT_BAR_PIXEL_WIDTH;
+    const movableWidth = contentWidth - rightStartPx - SPLIT_BAR_PIXEL_WIDTH;
     if (movableWidth <= 0) return;
-    const relativeX = event.clientX - bounds.left - rightStartPx;
+    const relativeX = event.clientX - bounds.left - paddingLeft - rightStartPx;
     const ratio = clamp(
       relativeX / movableWidth,
       MIN_QUESTION_SPLIT_RATIO,
@@ -729,6 +788,7 @@ questionSplitBarEl?.addEventListener("pointerdown", beginQuestionSplitDrag);
 window.addEventListener("pointermove", updateSplitDrag);
 window.addEventListener("pointerup", stopSplitDrag);
 window.addEventListener("pointercancel", stopSplitDrag);
+window.addEventListener("resize", syncBoardColumns);
 
 translateToggle?.addEventListener("change", () => {
   translateEnabled = !!translateToggle.checked;
@@ -824,8 +884,6 @@ listen("live_translation_cleared", () => {
 
 mainSplitRatio = loadMainSplitRatio();
 questionSplitRatio = loadQuestionSplitRatio();
-setMainSplitRatio(mainSplitRatio, false);
-setQuestionSplitRatio(questionSplitRatio, false);
 autoScrollEnabled = loadAutoScrollEnabled();
 if (autoScrollToggle) {
   autoScrollToggle.checked = autoScrollEnabled;
