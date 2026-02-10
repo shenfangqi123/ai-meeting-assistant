@@ -58,8 +58,6 @@ const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 const getBoardMetrics = () => {
   if (!boardEl) {
     return {
-      paddingLeft: 0,
-      paddingRight: 0,
       contentWidth: 0,
     };
   }
@@ -68,8 +66,6 @@ const getBoardMetrics = () => {
   const paddingRight = Number.parseFloat(style.paddingRight) || 0;
   const contentWidth = Math.max(0, boardEl.clientWidth - paddingLeft - paddingRight);
   return {
-    paddingLeft,
-    paddingRight,
     contentWidth,
   };
 };
@@ -242,7 +238,7 @@ const setQuestionSplitRatio = (ratio, persist = true) => {
 
 const syncBoardColumns = () => {
   if (!boardEl) return;
-  const { paddingLeft, contentWidth } = getBoardMetrics();
+  const { contentWidth } = getBoardMetrics();
   const hasSecondary = translateEnabled || questionsEnabled;
   const dualPanels = translateEnabled && questionsEnabled;
 
@@ -271,8 +267,8 @@ const syncBoardColumns = () => {
     }
   }
 
-  const mainBarLeft = paddingLeft + leftWidth;
-  const questionBarLeft = paddingLeft + leftWidth + splitWidth + middleWidth;
+  const mainBarLeft = leftWidth;
+  const questionBarLeft = leftWidth + splitWidth + middleWidth;
   boardEl.style.setProperty("--left-width-px", `${leftWidth.toFixed(2)}px`);
   boardEl.style.setProperty("--middle-width-px", `${middleWidth.toFixed(2)}px`);
   boardEl.style.setProperty("--question-width-px", `${questionWidth.toFixed(2)}px`);
