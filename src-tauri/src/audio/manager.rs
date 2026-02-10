@@ -939,6 +939,7 @@ fn translate_segment_batch_now(
     dir: &Path,
     segments: &Arc<Mutex<Vec<SegmentInfo>>>,
     requests: Vec<TranslationRequest>,
+    batch_config: SegmentTranslationBatchConfig,
     translation_generation: Arc<AtomicU64>,
     history: &mut SegmentTranslationHistory,
 ) {
@@ -964,6 +965,7 @@ fn translate_segment_batch_now(
             dir,
             segments,
             std::mem::take(&mut group),
+            batch_config,
             Arc::clone(&translation_generation),
             history,
         );
@@ -977,6 +979,7 @@ fn translate_segment_batch_now(
             dir,
             segments,
             group,
+            batch_config,
             translation_generation,
             history,
         );
@@ -988,6 +991,7 @@ fn translate_segment_provider_group(
     dir: &Path,
     segments: &Arc<Mutex<Vec<SegmentInfo>>>,
     requests: Vec<TranslationRequest>,
+    batch_config: SegmentTranslationBatchConfig,
     translation_generation: Arc<AtomicU64>,
     history: &mut SegmentTranslationHistory,
 ) {
@@ -1032,8 +1036,9 @@ fn translate_segment_provider_group(
         return;
     }
 
-    let context_items: Vec<BatchTranslationItem> = history
-        .previous_batch
+    let max_batch_size = batch_config.size.max(1);
+    let prev_start = history.previous_batch.len().saturating_sub(max_batch_size);
+    let context_items: Vec<BatchTranslationItem> = history.previous_batch[prev_start..]
         .iter()
         .map(|item| BatchTranslationItem {
             id: item.name.clone(),
@@ -1102,7 +1107,11 @@ fn translate_segment_provider_group(
                         cleaned_text,
                     }
                 })
-                .collect();
+                .collect::<Vec<_>>();
+            if history.previous_batch.len() > max_batch_size {
+                let keep_from = history.previous_batch.len().saturating_sub(max_batch_size);
+                history.previous_batch = history.previous_batch.split_off(keep_from);
+            }
         }
         Err(err) => {
             if translation_generation.load(Ordering::SeqCst) != active_generation {
@@ -1151,6 +1160,7 @@ fn run_translation_worker(
             &dir,
             &segments,
             batch_requests,
+            batch_config,
             Arc::clone(&translation_generation),
             &mut history,
         );
