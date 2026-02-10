@@ -45,36 +45,6 @@ const hasTranslationText = (value) => normalizeText(value).length > 0;
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-const isLikelyQuestion = (sentence) => {
-  const text = normalizeText(sentence);
-  if (!text) return false;
-  if (/[?？]/.test(text)) return true;
-
-  const stripped = text.replace(/[。！？?!]+$/g, "");
-  if (!stripped) return false;
-  if (/(吗|嗎|么|麼|呢|嘛)$/.test(stripped)) return true;
-  if (/(ですか|でしょうか|ますか|ませんか|かな|かしら|ですかね)$/.test(stripped)) return true;
-  if (/^(请问|请教)/.test(stripped)) return true;
-  if (/(为什么|为何|怎么|怎么办|如何|何时|哪里|哪儿|谁|什么|是否|能否|可否)/.test(stripped)) {
-    return true;
-  }
-  return false;
-};
-
-const hasQuestionInText = (text) => {
-  const value = normalizeText(text);
-  if (!value) return false;
-
-  const parts = value.match(/[^。！？?!\n]+[。！？?!]?/g) || [value];
-  for (const raw of parts) {
-    const sentence = normalizeText(raw);
-    if (isLikelyQuestion(sentence)) {
-      return true;
-    }
-  }
-  return false;
-};
-
 const setHeaderPrompt = (text) => {
   if (!headerPromptEl) return;
   const value = normalizeText(text);
@@ -244,15 +214,9 @@ const renderRowTranscript = (entry) => {
   if (transcript) {
     entry.transcriptEl.textContent = transcript;
     entry.transcriptEl.dataset.state = "ready";
-    if (hasQuestionInText(transcript)) {
-      entry.transcriptEl.dataset.intent = "question";
-    } else {
-      delete entry.transcriptEl.dataset.intent;
-    }
   } else {
     entry.transcriptEl.textContent = "Transcribing...";
     entry.transcriptEl.dataset.state = "pending";
-    delete entry.transcriptEl.dataset.intent;
   }
 };
 
