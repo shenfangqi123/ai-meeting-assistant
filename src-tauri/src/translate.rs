@@ -9,6 +9,16 @@ const DEFAULT_OPENAI_CHAT_BASE_URL: &str = "https://api.openai.com/v1/responses"
 const DEFAULT_OPENAI_CHAT_TIMEOUT: u64 = 120;
 const DEFAULT_OLLAMA_BASE_URL: &str = "http://localhost:11434";
 const DEFAULT_OLLAMA_TIMEOUT: u64 = 600;
+const DEFAULT_SEGMENT_SINGLE_PROMPT: &str =
+    "Translate the following text to {target_language}. Output only the translated text.";
+const DEFAULT_SEGMENT_BATCH_PROMPT: &str = "You rewrite noisy ASR text and translate it.\n\
+For each item in `items`:\n\
+1) rewrite `text` into readable text in the same language as input and return as `cleaned_source`;\n\
+2) translate `cleaned_source` to {target_language} and return as `translation`.\n\
+Use `context` only as previous conversation context.\n\
+Return ONLY JSON array.\n\
+Each element must be {\"id\": string, \"cleaned_source\": string, \"translation\": string}.\n\
+Return exactly one element for every id in `items`.";
 
 #[derive(Debug, Clone)]
 pub struct BatchTranslationItem {
@@ -63,6 +73,42 @@ fn log_translate_request(
     items,
     chars
   );
+}
+
+#[derive(Clone, Copy)]
+enum SegmentPromptKind {
+    Single,
+    Batch,
+}
+
+fn resolve_segment_prompt_template(config: &AppConfig, kind: SegmentPromptKind) -> String {
+    let configured = config.translate.as_ref().and_then(|translate| match kind {
+        SegmentPromptKind::Single => translate.segment_single_prompt.clone(),
+        SegmentPromptKind::Batch => translate.segment_batch_prompt.clone(),
+    });
+
+    configured
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| match kind {
+            SegmentPromptKind::Single => DEFAULT_SEGMENT_SINGLE_PROMPT.to_string(),
+            SegmentPromptKind::Batch => DEFAULT_SEGMENT_BATCH_PROMPT.to_string(),
+        })
+}
+
+fn render_prompt_template(
+    template: &str,
+    target_language: &str,
+    text: Option<&str>,
+    payload: Option<&str>,
+) -> String {
+    let mut rendered = template.replace("{target_language}", target_language);
+    if let Some(text) = text {
+        rendered = rendered.replace("{text}", text);
+    }
+    if let Some(payload) = payload {
+        rendered = rendered.replace("{payload}", payload);
+    }
+    rendered
 }
 
 pub async fn translate_text(
@@ -169,21 +215,22 @@ async fn translate_with_openai(
         .build()
         .map_err(|err| err.to_string())?;
 
-    let prompt = format!(
-        "Translate the following text to {target_language}. Output only the translated text."
-    );
+    let prompt_template = resolve_segment_prompt_template(config, SegmentPromptKind::Single);
+    let prompt_uses_text = prompt_template.contains("{text}");
+    let prompt = render_prompt_template(&prompt_template, target_language, Some(text), None);
+    let mut input = vec![json!({
+        "role": "system",
+        "content": [{"type": "input_text", "text": prompt}]
+    })];
+    if !prompt_uses_text {
+        input.push(json!({
+            "role": "user",
+            "content": [{"type": "input_text", "text": text}]
+        }));
+    }
     let body = json!({
       "model": model,
-      "input": [
-        {
-          "role": "system",
-          "content": [{"type": "input_text", "text": prompt}]
-        },
-        {
-          "role": "user",
-          "content": [{"type": "input_text", "text": text}]
-        }
-      ],
+      "input": input,
       "temperature": 0.2
     });
     let endpoint = base_url.trim_end_matches('/').to_string();
@@ -252,9 +299,14 @@ async fn translate_with_ollama(
     let timeout_secs = ollama.timeout_secs.unwrap_or(DEFAULT_OLLAMA_TIMEOUT);
     let url = format!("{}/api/generate", base_url.trim_end_matches('/'));
 
-    let prompt = format!(
-    "Translate the following text to {target_language}. Output only the translated text.\n\n{text}"
-  );
+    let prompt_template = resolve_segment_prompt_template(config, SegmentPromptKind::Single);
+    let prompt_uses_text = prompt_template.contains("{text}");
+    let prompt = render_prompt_template(&prompt_template, target_language, Some(text), None);
+    let prompt = if prompt_uses_text {
+        prompt
+    } else {
+        format!("{prompt}\n\n{text}")
+    };
     let body = json!({
       "model": model,
       "prompt": prompt,
@@ -308,6 +360,9 @@ fn resolve_translate_settings(
         provider: Some("ollama".to_string()),
         target_language: Some("zh".to_string()),
         segment_batch_size: None,
+        segment_single_prompt: None,
+        segment_batch_prompt: None,
+        live_prompt: None,
     });
 
     if translate_config.enabled == Some(false) {
@@ -356,29 +411,24 @@ async fn translate_batch_with_openai(
 
     let payload = build_batch_payload(items, &options.context_items)?;
 
-    let prompt = format!(
-    "You rewrite noisy ASR text and translate it.\n\
-For each item in `items`:\n\
-1) rewrite `text` into readable text in the same language as input and return as `cleaned_source`;\n\
-2) translate `cleaned_source` to {target_language} and return as `translation`.\n\
-Use `context` only as previous conversation context.\n\
-Return ONLY JSON array.\n\
-Each element must be {{\"id\": string, \"cleaned_source\": string, \"translation\": string}}.\n\
-Return exactly one element for every id in `items`."
-  );
+    let prompt_template = resolve_segment_prompt_template(config, SegmentPromptKind::Batch);
+    let prompt_uses_payload = prompt_template.contains("{payload}");
+    let prompt = render_prompt_template(&prompt_template, target_language, None, Some(&payload));
+
+    let mut input = vec![json!({
+        "role": "system",
+        "content": [{"type": "input_text", "text": prompt}]
+    })];
+    if !prompt_uses_payload {
+        input.push(json!({
+            "role": "user",
+            "content": [{"type": "input_text", "text": payload}]
+        }));
+    }
 
     let body = json!({
       "model": model,
-      "input": [
-        {
-          "role": "system",
-          "content": [{"type": "input_text", "text": prompt}]
-        },
-        {
-          "role": "user",
-          "content": [{"type": "input_text", "text": payload}]
-        }
-      ],
+      "input": input,
       "temperature": 0.1
     });
 
@@ -459,16 +509,14 @@ async fn translate_batch_with_ollama(
 
     let payload = build_batch_payload(items, &options.context_items)?;
 
-    let prompt = format!(
-    "You rewrite noisy ASR text and translate it.\n\
-For each item in `items`:\n\
-1) rewrite `text` into readable text in the same language as input and return as `cleaned_source`;\n\
-2) translate `cleaned_source` to {target_language} and return as `translation`.\n\
-Use `context` only as previous conversation context.\n\
-Return ONLY JSON array.\n\
-Each element must be {{\"id\": string, \"cleaned_source\": string, \"translation\": string}}.\n\
-Return exactly one element for every id in `items`.\n\n{payload}"
-  );
+    let prompt_template = resolve_segment_prompt_template(config, SegmentPromptKind::Batch);
+    let prompt_uses_payload = prompt_template.contains("{payload}");
+    let prompt = render_prompt_template(&prompt_template, target_language, None, Some(&payload));
+    let prompt = if prompt_uses_payload {
+        prompt
+    } else {
+        format!("{prompt}\n\n{payload}")
+    };
     let body = json!({
       "model": model,
       "prompt": prompt,
