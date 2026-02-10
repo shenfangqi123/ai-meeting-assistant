@@ -74,15 +74,18 @@ const extractQuestionsFromText = (text) => {
   if (!value) return [];
 
   const parts = value.match(/[^。！？?!\n]+[。！？?!]?/g) || [value];
+  const sentences = parts.map((part) => normalizeText(part)).filter(Boolean);
   const found = [];
   const inTextDedup = new Set();
-  for (const raw of parts) {
-    const sentence = normalizeText(raw);
+  for (let i = 0; i < sentences.length; i += 1) {
+    const sentence = sentences[i];
     if (!sentence || !isLikelyQuestion(sentence)) continue;
-    const key = normalizeQuestionKey(sentence);
+    const contextStart = Math.max(0, i - 2);
+    const enriched = sentences.slice(contextStart, i + 1).join("\n");
+    const key = normalizeQuestionKey(enriched);
     if (!key || inTextDedup.has(key)) continue;
     inTextDedup.add(key);
-    found.push(sentence);
+    found.push(enriched);
   }
   return found;
 };
