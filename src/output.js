@@ -33,6 +33,7 @@ const rowTranslationRequested = new Set();
 const translationInvokeQueue = [];
 const translationInvokeQueued = new Set();
 const TRANSLATION_INVOKE_INTERVAL_MS = 80;
+const QUESTION_TEST_TEXT = "测试问题：你最想优化这个功能的哪一部分？";
 
 let translateEnabled = false;
 let questionsEnabled = false;
@@ -345,8 +346,8 @@ const renderRowTranslation = (entry) => {
 };
 
 const renderRowQuestion = (entry) => {
-  entry.questionEl.textContent = "";
-  entry.questionEl.dataset.state = "pending";
+  entry.questionEl.textContent = QUESTION_TEST_TEXT;
+  entry.questionEl.dataset.state = "ready";
 };
 
 const renderRow = (entry) => {
