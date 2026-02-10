@@ -54,6 +54,13 @@ struct WindowTask {
     created_at: String,
 }
 
+#[derive(Debug, Clone)]
+struct VadTask {
+    info: SegmentInfo,
+    min_transcribe_ms: u64,
+    asr_config: AsrConfig,
+}
+
 #[derive(Debug, Clone, Serialize)]
 struct WindowTranscript {
     text: String,
@@ -115,6 +122,7 @@ struct StreamHandle {
 #[derive(Clone)]
 struct TaskQueues {
     transcribe_tx: mpsc::Sender<String>,
+    vad_tx: mpsc::Sender<VadTask>,
     translation_queue: Arc<TranslationQueue>,
     translation_in_flight: Arc<AtomicBool>,
     window_tx: mpsc::Sender<WindowTask>,
@@ -256,6 +264,7 @@ impl CaptureManager {
         }
 
         let (tx, rx) = mpsc::channel();
+        let (vad_tx, vad_rx) = mpsc::channel();
         let translation_queue = Arc::new(TranslationQueue::new());
         let translation_in_flight = Arc::new(AtomicBool::new(false));
         let segments = Arc::clone(&self.segments);
@@ -275,6 +284,22 @@ impl CaptureManager {
                 pending,
                 generation,
                 drop_segment_translation,
+            );
+        });
+
+        let app_handle = app.clone();
+        let dir_buf = dir.to_path_buf();
+        let segments = Arc::clone(&self.segments);
+        let transcribe_tx = tx.clone();
+        let speaker_state = Arc::clone(&self.speaker_state);
+        thread::spawn(move || {
+            run_vad_worker(
+                app_handle,
+                dir_buf,
+                segments,
+                vad_rx,
+                transcribe_tx,
+                speaker_state,
             );
         });
 
@@ -306,6 +331,7 @@ impl CaptureManager {
 
         let queues = TaskQueues {
             transcribe_tx: tx,
+            vad_tx,
             translation_queue,
             translation_in_flight,
             window_tx,
@@ -735,7 +761,8 @@ fn finalize_segment_with_vad(
     app: &AppHandle,
     dir: &Path,
     segments: &Arc<Mutex<Vec<SegmentInfo>>>,
-    queues: &TaskQueues,
+    transcribe_tx: &mpsc::Sender<String>,
+    speaker_state: &Arc<Mutex<SpeakerState>>,
     min_transcribe_ms: u64,
     asr_config: &AsrConfig,
     info: SegmentInfo,
@@ -754,8 +781,8 @@ fn finalize_segment_with_vad(
     };
 
     if should_keep {
-        push_segment(app, dir, segments, &queues.speaker_state, info.clone());
-        enqueue_transcription(queues, info.name);
+        push_segment(app, dir, segments, speaker_state, info.clone());
+        let _ = transcribe_tx.send(info.name);
     } else {
         let _ = fs::remove_file(&path);
     }
@@ -785,22 +812,25 @@ fn finalize_segment(
     }
 
     if asr_config.use_whisper_vad == Some(true) {
-        let app_handle = app.clone();
-        let dir_buf = dir.to_path_buf();
-        let segments = Arc::clone(segments);
-        let queues = queues.clone();
-        let asr_config = asr_config.clone();
-        thread::spawn(move || {
+        let task = VadTask {
+            info,
+            min_transcribe_ms,
+            asr_config: asr_config.clone(),
+        };
+        if let Err(err) = queues.vad_tx.send(task) {
+            eprintln!("vad worker unavailable, fallback to inline processing");
+            let task = err.0;
             finalize_segment_with_vad(
-                &app_handle,
-                &dir_buf,
-                &segments,
-                &queues,
-                min_transcribe_ms,
-                &asr_config,
-                info,
+                app,
+                dir,
+                segments,
+                &queues.transcribe_tx,
+                &queues.speaker_state,
+                task.min_transcribe_ms,
+                &task.asr_config,
+                task.info,
             );
-        });
+        }
         return;
     }
 
@@ -888,6 +918,28 @@ fn run_transcription_worker(
                 provider,
             );
         }
+    }
+}
+
+fn run_vad_worker(
+    app: AppHandle,
+    dir: PathBuf,
+    segments: Arc<Mutex<Vec<SegmentInfo>>>,
+    rx: mpsc::Receiver<VadTask>,
+    transcribe_tx: mpsc::Sender<String>,
+    speaker_state: Arc<Mutex<SpeakerState>>,
+) {
+    while let Ok(task) = rx.recv() {
+        finalize_segment_with_vad(
+            &app,
+            &dir,
+            &segments,
+            &transcribe_tx,
+            &speaker_state,
+            task.min_transcribe_ms,
+            &task.asr_config,
+            task.info,
+        );
     }
 }
 
