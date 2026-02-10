@@ -84,6 +84,11 @@ pub struct AsrConfig {
     pub use_whisper_stream: Option<bool>,
     pub whisper_cpp_stream_path: Option<String>,
     pub whisper_cpp_stream_step_ms: Option<u64>,
+    pub whisper_context_enabled: Option<bool>,
+    pub whisper_context_max_chars: Option<usize>,
+    pub whisper_context_short_segment_ms: Option<u64>,
+    pub whisper_context_boundary_gap_ms: Option<u64>,
+    pub whisper_context_reset_silence_ms: Option<u64>,
 }
 
 impl Default for AsrConfig {
@@ -105,6 +110,11 @@ impl Default for AsrConfig {
             use_whisper_stream: Some(false),
             whisper_cpp_stream_path: Some("whisper-stream.exe".to_string()),
             whisper_cpp_stream_step_ms: Some(1000),
+            whisper_context_enabled: Some(true),
+            whisper_context_max_chars: Some(100),
+            whisper_context_short_segment_ms: Some(2500),
+            whisper_context_boundary_gap_ms: Some(1200),
+            whisper_context_reset_silence_ms: Some(4000),
         }
     }
 }

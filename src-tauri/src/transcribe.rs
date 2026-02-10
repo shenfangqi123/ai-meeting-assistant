@@ -14,7 +14,11 @@ const DEFAULT_WHISPER_SERVER_URL: &str = "http://127.0.0.1:8080/inference";
 const DEFAULT_WHISPER_SERVER_RESPONSE_FORMAT: &str = "text";
 const DEFAULT_WHISPER_SERVER_TEMPERATURE: &str = "0";
 
-pub async fn transcribe_file(app: &AppHandle, path: &Path) -> Result<String, String> {
+pub async fn transcribe_file(
+    app: &AppHandle,
+    path: &Path,
+    whisper_prompt_hint: Option<&str>,
+) -> Result<String, String> {
     let config = load_config()?;
     let mut openai = config.openai.clone();
     let mut asr_config = config.asr.unwrap_or_default();
@@ -29,7 +33,8 @@ pub async fn transcribe_file(app: &AppHandle, path: &Path) -> Result<String, Str
 
     match provider.as_str() {
         "whisperserver" => {
-            let server_result = transcribe_with_whisper_server(app, path, &asr_config).await;
+            let server_result =
+                transcribe_with_whisper_server(app, path, &asr_config, whisper_prompt_hint).await;
             match server_result {
                 Ok(text) => return Ok(text),
                 Err(err) => {
@@ -58,6 +63,7 @@ pub async fn transcribe_with_whisper_server(
     app: &AppHandle,
     path: &Path,
     config: &AsrConfig,
+    prompt_hint: Option<&str>,
 ) -> Result<String, String> {
     let manual_url = config
         .whisper_server_url
@@ -103,6 +109,15 @@ pub async fn transcribe_with_whisper_server(
         .filter(|value| !value.trim().is_empty())
     {
         form = form.text("language", language);
+    }
+    if let Some(prompt) = prompt_hint
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+    {
+        // Context is passed as a soft hint, not an instruction that forces correction.
+        form = form
+            .text("prompt", prompt.to_string())
+            .text("initial_prompt", prompt.to_string());
     }
 
     let client = reqwest::Client::builder()

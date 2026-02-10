@@ -9,7 +9,7 @@ use crate::translate::{
     translate_text_batch_with_options, BatchTranslationItem, BatchTranslationOptions,
     TranslateSource,
 };
-use chrono::Local;
+use chrono::{DateTime, Duration as ChronoDuration, FixedOffset, Local};
 use hound::{SampleFormat, WavSpec, WavWriter};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet, VecDeque};
@@ -25,6 +25,12 @@ use tauri::{AppHandle, Emitter, Manager};
 
 const DEFAULT_SEGMENT_TRANSLATE_BATCH_SIZE: usize = 1;
 const TRANSLATION_BATCH_POLL_MS: u64 = 10;
+const DEFAULT_WHISPER_CONTEXT_ENABLED: bool = true;
+const DEFAULT_WHISPER_CONTEXT_MAX_CHARS: usize = 100;
+const DEFAULT_WHISPER_CONTEXT_SHORT_SEGMENT_MS: u64 = 2500;
+const DEFAULT_WHISPER_CONTEXT_BOUNDARY_GAP_MS: u64 = 1200;
+const DEFAULT_WHISPER_CONTEXT_RESET_SILENCE_MS: u64 = 4000;
+const WHISPER_CONTEXT_HISTORY_MULTIPLIER: usize = 3;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SegmentInfo {
@@ -70,6 +76,117 @@ struct WindowTranscript {
     speaker_id: Option<u32>,
     speaker_similarity: Option<f32>,
     speaker_mixed: bool,
+}
+
+#[derive(Debug, Clone)]
+struct SegmentContextMeta {
+    duration_ms: u64,
+    created_at: Option<DateTime<FixedOffset>>,
+    speaker_changed: bool,
+}
+
+#[derive(Debug, Clone)]
+struct WhisperContextPolicy {
+    enabled: bool,
+    max_chars: usize,
+    short_segment_ms: u64,
+    boundary_gap_ms: u64,
+    reset_silence_ms: u64,
+}
+
+impl WhisperContextPolicy {
+    fn from_asr(config: &AsrConfig) -> Self {
+        let max_chars = config
+            .whisper_context_max_chars
+            .unwrap_or(DEFAULT_WHISPER_CONTEXT_MAX_CHARS)
+            .max(1);
+        Self {
+            enabled: config
+                .whisper_context_enabled
+                .unwrap_or(DEFAULT_WHISPER_CONTEXT_ENABLED),
+            max_chars,
+            short_segment_ms: config
+                .whisper_context_short_segment_ms
+                .unwrap_or(DEFAULT_WHISPER_CONTEXT_SHORT_SEGMENT_MS),
+            boundary_gap_ms: config
+                .whisper_context_boundary_gap_ms
+                .unwrap_or(DEFAULT_WHISPER_CONTEXT_BOUNDARY_GAP_MS),
+            reset_silence_ms: config
+                .whisper_context_reset_silence_ms
+                .unwrap_or(DEFAULT_WHISPER_CONTEXT_RESET_SILENCE_MS),
+        }
+    }
+}
+
+#[derive(Debug)]
+struct WhisperContextState {
+    policy: WhisperContextPolicy,
+    history: String,
+    previous_end_at: Option<DateTime<FixedOffset>>,
+}
+
+impl WhisperContextState {
+    fn new(policy: WhisperContextPolicy) -> Self {
+        Self {
+            policy,
+            history: String::new(),
+            previous_end_at: None,
+        }
+    }
+
+    fn prompt_for(&mut self, meta: &SegmentContextMeta) -> Option<String> {
+        if !self.policy.enabled {
+            return None;
+        }
+        let gap_ms = self.gap_ms(meta);
+        if meta.speaker_changed || gap_ms.is_some_and(|gap| gap >= self.policy.reset_silence_ms) {
+            self.history.clear();
+        }
+        if self.history.trim().is_empty() {
+            return None;
+        }
+
+        let is_short = meta.duration_ms <= self.policy.short_segment_ms;
+        let is_boundary =
+            meta.speaker_changed || gap_ms.is_some_and(|gap| gap >= self.policy.boundary_gap_ms);
+        if !is_short && !is_boundary {
+            return None;
+        }
+        Some(take_tail_chars(&self.history, self.policy.max_chars))
+    }
+
+    fn observe_result(&mut self, meta: Option<&SegmentContextMeta>, transcript: Option<&str>) {
+        if let Some(meta) = meta {
+            self.previous_end_at = segment_end_at(meta);
+        }
+        if !self.policy.enabled {
+            return;
+        }
+        let text = transcript
+            .map(str::trim)
+            .filter(|value| !value.is_empty())
+            .unwrap_or("");
+        if text.is_empty() {
+            return;
+        }
+        if !self.history.is_empty() {
+            self.history.push(' ');
+        }
+        self.history.push_str(text);
+        let keep_chars = self
+            .policy
+            .max_chars
+            .saturating_mul(WHISPER_CONTEXT_HISTORY_MULTIPLIER)
+            .max(self.policy.max_chars);
+        self.history = take_tail_chars(&self.history, keep_chars);
+    }
+
+    fn gap_ms(&self, meta: &SegmentContextMeta) -> Option<u64> {
+        let start_at = meta.created_at.as_ref()?;
+        let prev_end = self.previous_end_at.as_ref()?;
+        let gap = start_at.signed_duration_since(*prev_end).num_milliseconds();
+        Some(gap.max(0) as u64)
+    }
 }
 
 #[derive(Default)]
@@ -880,6 +997,43 @@ fn apply_transcript(
     let _ = transcript_text;
 }
 
+fn load_whisper_context_policy() -> WhisperContextPolicy {
+    let asr_config = load_app_config()
+        .ok()
+        .and_then(|cfg| cfg.asr)
+        .unwrap_or_default();
+    WhisperContextPolicy::from_asr(&asr_config)
+}
+
+fn load_segment_context_meta(
+    segments: &Arc<Mutex<Vec<SegmentInfo>>>,
+    name: &str,
+) -> Option<SegmentContextMeta> {
+    let guard = segments.lock().ok()?;
+    let segment = guard.iter().find(|segment| segment.name == name)?;
+    Some(SegmentContextMeta {
+        duration_ms: segment.duration_ms,
+        created_at: DateTime::parse_from_rfc3339(&segment.created_at).ok(),
+        speaker_changed: segment.speaker_changed.unwrap_or(false),
+    })
+}
+
+fn segment_end_at(meta: &SegmentContextMeta) -> Option<DateTime<FixedOffset>> {
+    let start_at = meta.created_at.as_ref()?;
+    start_at.checked_add_signed(ChronoDuration::milliseconds(meta.duration_ms as i64))
+}
+
+fn take_tail_chars(text: &str, max_chars: usize) -> String {
+    if max_chars == 0 {
+        return String::new();
+    }
+    let total = text.chars().count();
+    if total <= max_chars {
+        return text.to_string();
+    }
+    text.chars().skip(total - max_chars).collect()
+}
+
 fn run_transcription_worker(
     app: AppHandle,
     dir: PathBuf,
@@ -890,19 +1044,26 @@ fn run_transcription_worker(
     translation_generation: Arc<AtomicU64>,
     drop_segment_translation: Arc<AtomicBool>,
 ) {
+    let mut context_state = WhisperContextState::new(load_whisper_context_policy());
     while let Ok(name) = rx.recv() {
         let path = dir.join(&name);
+        let meta = load_segment_context_meta(&segments, &name);
+        let prompt_hint = meta
+            .as_ref()
+            .and_then(|segment_meta| context_state.prompt_for(segment_meta));
         let thread_id = std::thread::current().id();
         println!("[transcribe] thread={thread_id:?} name={name}");
         let started_at = Instant::now();
-        let transcript =
-            match tauri::async_runtime::block_on(async { transcribe_file(&app, &path).await }) {
-                Ok(text) => Some(text),
-                Err(err) => {
-                    eprintln!("transcription failed for {name}: {err}");
-                    Some(String::new())
-                }
-            };
+        let transcript = match tauri::async_runtime::block_on(async {
+            transcribe_file(&app, &path, prompt_hint.as_deref()).await
+        }) {
+            Ok(text) => Some(text),
+            Err(err) => {
+                eprintln!("transcription failed for {name}: {err}");
+                Some(String::new())
+            }
+        };
+        context_state.observe_result(meta.as_ref(), transcript.as_deref());
         let elapsed_ms = started_at.elapsed().as_millis() as u64;
         apply_transcript(&app, &dir, &segments, &name, transcript, elapsed_ms);
 
@@ -1266,7 +1427,7 @@ fn run_window_worker(
             }
         }
         let transcript = match tauri::async_runtime::block_on(async {
-            transcribe_with_whisper_server(&app, &path, &asr_config).await
+            transcribe_with_whisper_server(&app, &path, &asr_config, None).await
         }) {
             Ok(text) => text,
             Err(err) => {
