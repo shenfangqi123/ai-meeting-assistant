@@ -122,6 +122,15 @@ fn normalize_translate_provider(provider: &str) -> String {
     }
 }
 
+fn compact_log_text(text: &str, max_chars: usize) -> String {
+    let compact = text.split_whitespace().collect::<Vec<_>>().join(" ");
+    let mut output = compact.chars().take(max_chars).collect::<String>();
+    if compact.chars().count() > max_chars {
+        output.push_str("...");
+    }
+    output
+}
+
 pub async fn translate_text(
     text: &str,
     provider_override: Option<String>,
@@ -411,6 +420,7 @@ async fn request_local_gpt_direct(
 ) -> Result<String, String> {
     let (base_url, project_id, timeout_secs) = resolve_local_gpt_settings(config)?;
     let url = local_gpt_direct_url(&base_url);
+    let prompt_preview = compact_log_text(prompt, 240);
 
     let client = Client::builder()
         .timeout(Duration::from_secs(timeout_secs))
@@ -427,6 +437,14 @@ async fn request_local_gpt_direct(
         items,
         chars,
     );
+    eprintln!(
+        "[local-gpt-direct] request mode={} source={} project_id={} timeout_secs={} prompt_preview={}",
+        mode,
+        source.as_str(),
+        project_id,
+        timeout_secs,
+        prompt_preview
+    );
 
     let response = client
         .post(url.as_str())
@@ -441,8 +459,17 @@ async fn request_local_gpt_direct(
 
     let status = response.status();
     let raw = response.text().await.map_err(|err| err.to_string())?;
-    let value: serde_json::Value =
-        serde_json::from_str(&raw).unwrap_or_else(|_| json!({ "message": raw }));
+    let (value, parsed_json) = match serde_json::from_str::<serde_json::Value>(&raw) {
+        Ok(value) => (value, true),
+        Err(_) => (json!({ "message": raw }), false),
+    };
+    if !parsed_json {
+        eprintln!(
+            "[local-gpt-direct] non-json response status={} raw_preview={}",
+            status.as_u16(),
+            compact_log_text(&raw, 300)
+        );
+    }
     let message = value
         .get("message")
         .and_then(|field| field.as_str())
@@ -462,6 +489,33 @@ async fn request_local_gpt_direct(
         .and_then(|field| field.as_str())
         .map(|text| text.trim().to_string())
         .filter(|text| !text.is_empty());
+    let request_id = value
+        .get("request_id")
+        .and_then(|field| field.as_str())
+        .unwrap_or("");
+    let viewer_url = value
+        .get("viewer_url")
+        .and_then(|field| field.as_str())
+        .unwrap_or("");
+    let result_chars = result
+        .as_ref()
+        .map(|text| text.chars().count())
+        .unwrap_or(0usize);
+    let result_preview = result
+        .as_deref()
+        .map(|text| compact_log_text(text, 240))
+        .unwrap_or_default();
+    eprintln!(
+        "[local-gpt-direct] response status={} ok={} timed_out={} request_id={} viewer_url={} message={} result_chars={} result_preview={}",
+        status.as_u16(),
+        ok,
+        timed_out,
+        request_id,
+        viewer_url,
+        compact_log_text(&message, 180),
+        result_chars,
+        result_preview
+    );
 
     if ok {
         return result.ok_or_else(|| "local-gpt response missing result".to_string());
