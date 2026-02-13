@@ -8,7 +8,7 @@ mod transcribe;
 mod translate;
 mod whisper_server;
 
-use app_config::{load_config, OllamaConfig, TranslateConfig};
+use app_config::{load_config, LocalGptConfig, OllamaConfig, TranslateConfig};
 use asr::AsrState;
 use audio::{CaptureManager, SegmentInfo};
 use chrono::Local;
@@ -39,6 +39,9 @@ const DEFAULT_OLLAMA_MODEL: &str = "gpt-oss:20b";
 const DEFAULT_OPENAI_CHAT_MODEL: &str = "gpt-4.1-mini";
 const DEFAULT_OPENAI_CHAT_BASE_URL: &str = "https://api.openai.com/v1/responses";
 const DEFAULT_OPENAI_CHAT_TIMEOUT: u64 = 120;
+const DEFAULT_LOCAL_GPT_BASE_URL: &str = "http://127.0.0.1:8789";
+const DEFAULT_LOCAL_GPT_TIMEOUT: u64 = 240;
+const DEFAULT_LOCAL_GPT_DIRECT_PATH: &str = "/local-gpt-sse/direct";
 const DEFAULT_LIVE_PROMPT: &str =
     "Translate the following text to {target_language}. Output only the translated text.";
 
@@ -242,8 +245,8 @@ fn resolve_translate_settings(
     let provider = provider_override
         .filter(|value| !value.trim().is_empty())
         .or(translate_config.provider)
-        .unwrap_or_else(|| "ollama".to_string())
-        .to_lowercase();
+        .unwrap_or_else(|| "ollama".to_string());
+    let provider = normalize_translate_provider(&provider);
     let target_language = translate_config
         .target_language
         .unwrap_or_else(|| "zh".to_string());
@@ -871,6 +874,7 @@ async fn generate_with_selected_provider(
 ) -> Result<String, String> {
     match provider {
         "openai" => generate_with_openai(prompt, config).await,
+        "local-gpt" => generate_with_local_gpt(prompt, config).await,
         _ => generate_with_ollama(prompt, config).await,
     }
 }
@@ -958,6 +962,90 @@ fn extract_openai_response_text(value: &serde_json::Value) -> Option<String> {
         }
     }
     None
+}
+
+async fn generate_with_local_gpt(
+    prompt: &str,
+    config: &app_config::AppConfig,
+) -> Result<String, String> {
+    let local_gpt = config.local_gpt.clone().unwrap_or_else(|| LocalGptConfig {
+        enabled: Some(true),
+        base_url: Some(DEFAULT_LOCAL_GPT_BASE_URL.to_string()),
+        timeout_secs: Some(DEFAULT_LOCAL_GPT_TIMEOUT),
+        project_id: None,
+    });
+
+    if local_gpt.enabled == Some(false) {
+        return Err("local-gpt disabled".to_string());
+    }
+
+    let base_url = local_gpt
+        .base_url
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_LOCAL_GPT_BASE_URL.to_string());
+    let timeout_secs = local_gpt.timeout_secs.unwrap_or(DEFAULT_LOCAL_GPT_TIMEOUT);
+    let project_id = local_gpt
+        .project_id
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "local-gpt project-id is required".to_string())?;
+    let url = format!(
+        "{}/{}",
+        base_url.trim_end_matches('/'),
+        DEFAULT_LOCAL_GPT_DIRECT_PATH.trim_start_matches('/')
+    );
+
+    let client = reqwest::Client::builder()
+        .timeout(Duration::from_secs(timeout_secs))
+        .build()
+        .map_err(|err| err.to_string())?;
+    let response = client
+        .post(url)
+        .json(&serde_json::json!({
+          "project_id": project_id.as_str(),
+          "project-id": project_id.as_str(),
+          "prompt": prompt
+        }))
+        .send()
+        .await
+        .map_err(|err| err.to_string())?;
+
+    let status = response.status();
+    let raw = response.text().await.map_err(|err| err.to_string())?;
+    let value: serde_json::Value =
+        serde_json::from_str(&raw).unwrap_or_else(|_| serde_json::json!({ "message": raw }));
+
+    let message = value
+        .get("message")
+        .and_then(|field| field.as_str())
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+        .unwrap_or_else(|| value.to_string());
+    let timed_out = value
+        .get("timed_out")
+        .and_then(|field| field.as_bool())
+        .unwrap_or(false);
+    let result = value
+        .get("result")
+        .and_then(|field| field.as_str())
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty());
+
+    if status.is_success() && value.get("ok").and_then(|field| field.as_bool()) != Some(false) {
+        return result.ok_or_else(|| "local-gpt response missing result".to_string());
+    }
+
+    if timed_out {
+        if let Some(partial) = result {
+            eprintln!(
+                "local-gpt rag prompt timed out, returning partial result chars={}",
+                partial.chars().count()
+            );
+            return Ok(partial);
+        }
+    }
+
+    Err(message)
 }
 
 async fn generate_with_ollama(
@@ -1275,6 +1363,7 @@ fn should_start_whisper_server(config: &app_config::AsrConfig) -> bool {
 fn normalize_translate_provider(provider: &str) -> String {
     match provider.trim().to_lowercase().as_str() {
         "openai" | "chatgpt" => "openai".to_string(),
+        "local-gpt" | "local_gpt" | "localgpt" => "local-gpt".to_string(),
         _ => "ollama".to_string(),
     }
 }

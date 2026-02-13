@@ -301,7 +301,7 @@ const updateStatus = () => {
 const getTranslateProvider = async () => {
   try {
     const provider = await invoke("get_translate_provider");
-    if (provider === "openai" || provider === "ollama") {
+    if (provider === "openai" || provider === "ollama" || provider === "local-gpt") {
       return provider;
     }
   } catch (_) {

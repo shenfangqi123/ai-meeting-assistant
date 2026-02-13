@@ -190,6 +190,11 @@ button:disabled {
   color: #24533d;
 }
 
+.provider-toggle[data-provider="local-gpt"] {
+  border-color: #8b4a11;
+  color: #6f3a0c;
+}
+
 .toggle {
   display: flex;
   align-items: center;

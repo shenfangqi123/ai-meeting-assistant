@@ -1,4 +1,4 @@
-use crate::app_config::{load_config, AppConfig, TranslateConfig};
+use crate::app_config::{load_config, AppConfig, LocalGptConfig, TranslateConfig};
 use reqwest::Client;
 use serde_json::json;
 use std::collections::HashMap;
@@ -9,6 +9,9 @@ const DEFAULT_OPENAI_CHAT_BASE_URL: &str = "https://api.openai.com/v1/responses"
 const DEFAULT_OPENAI_CHAT_TIMEOUT: u64 = 120;
 const DEFAULT_OLLAMA_BASE_URL: &str = "http://localhost:11434";
 const DEFAULT_OLLAMA_TIMEOUT: u64 = 600;
+const DEFAULT_LOCAL_GPT_BASE_URL: &str = "http://127.0.0.1:8789";
+const DEFAULT_LOCAL_GPT_TIMEOUT: u64 = 240;
+const DEFAULT_LOCAL_GPT_DIRECT_PATH: &str = "/local-gpt-sse/direct";
 const DEFAULT_SEGMENT_SINGLE_PROMPT: &str =
     "Translate the following text to {target_language}. Output only the translated text.";
 const DEFAULT_SEGMENT_BATCH_PROMPT: &str = "You rewrite noisy ASR text and translate it.\n\
@@ -111,6 +114,14 @@ fn render_prompt_template(
     rendered
 }
 
+fn normalize_translate_provider(provider: &str) -> String {
+    match provider.trim().to_lowercase().as_str() {
+        "openai" | "chatgpt" => "openai".to_string(),
+        "local-gpt" | "local_gpt" | "localgpt" => "local-gpt".to_string(),
+        _ => "ollama".to_string(),
+    }
+}
+
 pub async fn translate_text(
     text: &str,
     provider_override: Option<String>,
@@ -123,6 +134,7 @@ pub async fn translate_text(
         "openai" | "chatgpt" => {
             translate_with_openai(text, &target_language, &config, source).await
         }
+        "local-gpt" => translate_with_local_gpt(text, &target_language, &config, source).await,
         "ollama" => translate_with_ollama(text, &target_language, &config, source).await,
         other => Err(format!("unsupported translate provider: {other}")),
     }
@@ -170,6 +182,10 @@ pub async fn translate_text_batch_with_options(
     let translations = match provider.as_str() {
         "openai" | "chatgpt" => {
             translate_batch_with_openai(items, &target_language, &config, source, &options).await?
+        }
+        "local-gpt" => {
+            translate_batch_with_local_gpt(items, &target_language, &config, source, &options)
+                .await?
         }
         "ollama" => {
             translate_batch_with_ollama(items, &target_language, &config, source, &options).await?
@@ -351,6 +367,146 @@ async fn translate_with_ollama(
         .ok_or_else(|| "ollama response missing text".to_string())
 }
 
+fn resolve_local_gpt_settings(config: &AppConfig) -> Result<(String, String, u64), String> {
+    let local_gpt = config.local_gpt.clone().unwrap_or_else(|| LocalGptConfig {
+        enabled: Some(true),
+        base_url: Some(DEFAULT_LOCAL_GPT_BASE_URL.to_string()),
+        timeout_secs: Some(DEFAULT_LOCAL_GPT_TIMEOUT),
+        project_id: None,
+    });
+
+    if local_gpt.enabled == Some(false) {
+        return Err("local-gpt disabled".to_string());
+    }
+
+    let base_url = local_gpt
+        .base_url
+        .filter(|value| !value.trim().is_empty())
+        .unwrap_or_else(|| DEFAULT_LOCAL_GPT_BASE_URL.to_string());
+    let timeout_secs = local_gpt.timeout_secs.unwrap_or(DEFAULT_LOCAL_GPT_TIMEOUT);
+    let project_id = local_gpt
+        .project_id
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| "local-gpt project-id is required".to_string())?;
+    Ok((base_url, project_id, timeout_secs))
+}
+
+fn local_gpt_direct_url(base_url: &str) -> String {
+    format!(
+        "{}/{}",
+        base_url.trim_end_matches('/'),
+        DEFAULT_LOCAL_GPT_DIRECT_PATH.trim_start_matches('/')
+    )
+}
+
+async fn request_local_gpt_direct(
+    prompt: &str,
+    target_language: &str,
+    mode: &str,
+    items: usize,
+    chars: usize,
+    config: &AppConfig,
+    source: TranslateSource,
+) -> Result<String, String> {
+    let (base_url, project_id, timeout_secs) = resolve_local_gpt_settings(config)?;
+    let url = local_gpt_direct_url(&base_url);
+
+    let client = Client::builder()
+        .timeout(Duration::from_secs(timeout_secs))
+        .build()
+        .map_err(|err| err.to_string())?;
+
+    log_translate_request(
+        source,
+        "local-gpt",
+        mode,
+        url.as_str(),
+        "-",
+        target_language,
+        items,
+        chars,
+    );
+
+    let response = client
+        .post(url.as_str())
+        .json(&json!({
+          "project_id": project_id.as_str(),
+          "project-id": project_id.as_str(),
+          "prompt": prompt
+        }))
+        .send()
+        .await
+        .map_err(|err| err.to_string())?;
+
+    let status = response.status();
+    let raw = response.text().await.map_err(|err| err.to_string())?;
+    let value: serde_json::Value =
+        serde_json::from_str(&raw).unwrap_or_else(|_| json!({ "message": raw }));
+    let message = value
+        .get("message")
+        .and_then(|field| field.as_str())
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty())
+        .unwrap_or_else(|| value.to_string());
+    let timed_out = value
+        .get("timed_out")
+        .and_then(|field| field.as_bool())
+        .unwrap_or(false);
+    let ok = value
+        .get("ok")
+        .and_then(|field| field.as_bool())
+        .unwrap_or(status.is_success());
+    let result = value
+        .get("result")
+        .and_then(|field| field.as_str())
+        .map(|text| text.trim().to_string())
+        .filter(|text| !text.is_empty());
+
+    if ok {
+        return result.ok_or_else(|| "local-gpt response missing result".to_string());
+    }
+
+    if timed_out {
+        if let Some(partial) = result {
+            eprintln!(
+                "local-gpt timed out, returning partial result chars={}",
+                partial.chars().count()
+            );
+            return Ok(partial);
+        }
+    }
+
+    Err(message)
+}
+
+async fn translate_with_local_gpt(
+    text: &str,
+    target_language: &str,
+    config: &crate::app_config::AppConfig,
+    source: TranslateSource,
+) -> Result<String, String> {
+    let prompt_template = resolve_segment_prompt_template(config, SegmentPromptKind::Single);
+    let prompt_uses_text = prompt_template.contains("{text}");
+    let prompt = render_prompt_template(&prompt_template, target_language, Some(text), None);
+    let prompt = if prompt_uses_text {
+        prompt
+    } else {
+        format!("{prompt}\n\n{text}")
+    };
+
+    request_local_gpt_direct(
+        &prompt,
+        target_language,
+        "single",
+        1,
+        text.chars().count(),
+        config,
+        source,
+    )
+    .await
+}
+
 fn resolve_translate_settings(
     config: &AppConfig,
     provider_override: Option<String>,
@@ -372,8 +528,8 @@ fn resolve_translate_settings(
     let provider = provider_override
         .filter(|value| !value.trim().is_empty())
         .or(translate_config.provider)
-        .unwrap_or_else(|| "ollama".to_string())
-        .to_lowercase();
+        .unwrap_or_else(|| "ollama".to_string());
+    let provider = normalize_translate_provider(&provider);
 
     let target_language = translate_config
         .target_language
@@ -560,6 +716,37 @@ async fn translate_batch_with_ollama(
         .map(|raw| raw.trim().to_string())
         .filter(|raw| !raw.is_empty())
         .ok_or_else(|| "ollama batch response missing text".to_string())?;
+    parse_batch_translation_json(&text)
+}
+
+async fn translate_batch_with_local_gpt(
+    items: &[BatchTranslationItem],
+    target_language: &str,
+    config: &AppConfig,
+    source: TranslateSource,
+    options: &BatchTranslationOptions,
+) -> Result<HashMap<String, BatchTranslationResult>, String> {
+    let payload = build_batch_payload(items, &options.context_items)?;
+    let prompt_template = resolve_segment_prompt_template(config, SegmentPromptKind::Batch);
+    let prompt_uses_payload = prompt_template.contains("{payload}");
+    let prompt = render_prompt_template(&prompt_template, target_language, None, Some(&payload));
+    let prompt = if prompt_uses_payload {
+        prompt
+    } else {
+        format!("{prompt}\n\n{payload}")
+    };
+
+    let batch_chars: usize = items.iter().map(|item| item.text.chars().count()).sum();
+    let text = request_local_gpt_direct(
+        &prompt,
+        target_language,
+        "batch",
+        items.len(),
+        batch_chars,
+        config,
+        source,
+    )
+    .await?;
     parse_batch_translation_json(&text)
 }
 

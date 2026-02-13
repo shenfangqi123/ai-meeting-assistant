@@ -60,6 +60,7 @@ let resizeFrame = null;
 let isCapturing = false;
 let currentAsrProvider = "whisperserver";
 let currentTranslateProvider = "ollama";
+const TRANSLATE_PROVIDER_ORDER = ["ollama", "openai", "local-gpt"];
 let selectedProjectIds = [];
 let selectedProjectName = "";
 let projects = [];
@@ -113,8 +114,15 @@ const updateAsrUi = () => {
 const updateTranslateProviderUi = () => {
   if (!translateProviderToggle) return;
   translateProviderToggle.dataset.provider = currentTranslateProvider;
-  translateProviderToggle.textContent =
-    currentTranslateProvider === "openai" ? "ChatGPT" : "Ollama";
+  if (currentTranslateProvider === "openai") {
+    translateProviderToggle.textContent = "ChatGPT";
+    return;
+  }
+  if (currentTranslateProvider === "local-gpt") {
+    translateProviderToggle.textContent = "Local GPT";
+    return;
+  }
+  translateProviderToggle.textContent = "Ollama";
 };
 
 const updateCaptureUi = (active) => {
@@ -905,7 +913,11 @@ asrProviderToggle?.addEventListener("click", async () => {
 });
 
 translateProviderToggle?.addEventListener("click", async () => {
-  const next = currentTranslateProvider === "ollama" ? "openai" : "ollama";
+  const currentIndex = TRANSLATE_PROVIDER_ORDER.indexOf(currentTranslateProvider);
+  const next =
+    TRANSLATE_PROVIDER_ORDER[
+      (currentIndex >= 0 ? currentIndex + 1 : 0) % TRANSLATE_PROVIDER_ORDER.length
+    ];
   try {
     const updated = await invoke("set_translate_provider", { provider: next });
     currentTranslateProvider = updated || next;

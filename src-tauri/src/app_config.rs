@@ -28,11 +28,25 @@ pub struct OllamaConfig {
     pub timeout_secs: Option<u64>,
 }
 
+#[allow(dead_code)]
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LocalGptConfig {
+    pub enabled: Option<bool>,
+    pub base_url: Option<String>,
+    pub timeout_secs: Option<u64>,
+    #[serde(alias = "project-id", alias = "project_id")]
+    pub project_id: Option<String>,
+}
+
 #[derive(Debug, Clone, Deserialize)]
 pub struct AppConfig {
     pub openai: OpenAiConfig,
     #[allow(dead_code)]
     pub ollama: Option<OllamaConfig>,
+    #[allow(dead_code)]
+    #[serde(alias = "localGpt", alias = "local-gpt")]
+    pub local_gpt: Option<LocalGptConfig>,
     pub translate: Option<TranslateConfig>,
     pub speaker: Option<SpeakerConfig>,
     pub asr: Option<AsrConfig>,
