@@ -386,7 +386,9 @@ fn resolve_local_gpt_settings(config: &AppConfig) -> Result<(String, String, u64
     });
 
     if local_gpt.enabled == Some(false) {
-        return Err("local-gpt disabled".to_string());
+        eprintln!(
+            "[local-gpt-direct] config localGpt.enabled=false, but proceeding because local-gpt provider is selected"
+        );
     }
 
     let base_url = local_gpt
