@@ -25,7 +25,6 @@ use tauri::{AppHandle, Emitter, Manager};
 
 const DEFAULT_SEGMENT_TRANSLATE_BATCH_SIZE: usize = 1;
 const TRANSLATION_BATCH_POLL_MS: u64 = 10;
-const TRANSLATION_BATCH_MAX_WAIT_MS: u64 = 400;
 const DEFAULT_WHISPER_CONTEXT_ENABLED: bool = true;
 const DEFAULT_WHISPER_CONTEXT_MAX_CHARS: usize = 100;
 const DEFAULT_WHISPER_CONTEXT_SHORT_SEGMENT_MS: u64 = 2500;
@@ -1129,7 +1128,6 @@ fn collect_translation_batch(
         return vec![first];
     }
 
-    let started_at = Instant::now();
     let mut batch = vec![first];
     while batch.len() < config.size {
         if active_generation != translation_generation.load(Ordering::SeqCst) {
@@ -1143,9 +1141,6 @@ fn collect_translation_batch(
             }
             batch.push(request);
             continue;
-        }
-        if started_at.elapsed() >= Duration::from_millis(TRANSLATION_BATCH_MAX_WAIT_MS) {
-            break;
         }
         std::thread::sleep(Duration::from_millis(TRANSLATION_BATCH_POLL_MS));
     }
