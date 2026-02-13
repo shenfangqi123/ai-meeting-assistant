@@ -1105,13 +1105,8 @@ fn run_vad_worker(
 }
 
 fn load_segment_translation_batch_config() -> SegmentTranslationBatchConfig {
-    let translate = load_app_config().ok().and_then(|cfg| cfg.translate);
-    let raw_size = translate
-        .as_ref()
-        .and_then(|cfg| cfg.segment_batch_size)
-        .unwrap_or(DEFAULT_SEGMENT_TRANSLATE_BATCH_SIZE);
-    let size = raw_size.max(1);
-    SegmentTranslationBatchConfig { size }
+    // Force per-segment translation dispatch: do not batch multiple segments.
+    SegmentTranslationBatchConfig { size: 1 }
 }
 
 fn collect_translation_batch(
