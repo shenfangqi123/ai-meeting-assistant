@@ -12,6 +12,7 @@ const DEFAULT_OLLAMA_TIMEOUT: u64 = 600;
 const DEFAULT_LOCAL_GPT_BASE_URL: &str = "http://127.0.0.1:8787";
 const DEFAULT_LOCAL_GPT_TIMEOUT: u64 = 240;
 const DEFAULT_LOCAL_GPT_DIRECT_PATH: &str = "/local-gpt-sse/direct";
+const DEFAULT_LOCAL_GPT_PROJECT_ID: &str = "g-p-698c11cf2bc08191b07e28128883fcbb-testapi";
 const DEFAULT_SEGMENT_SINGLE_PROMPT: &str =
     "Translate the following text to {target_language}. Output only the translated text.";
 const DEFAULT_SEGMENT_BATCH_PROMPT: &str = "You rewrite noisy ASR text and translate it.\n\
@@ -397,7 +398,7 @@ fn resolve_local_gpt_settings(config: &AppConfig) -> Result<(String, String, u64
         .project_id
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| "local-gpt project-id is required".to_string())?;
+        .unwrap_or_else(|| DEFAULT_LOCAL_GPT_PROJECT_ID.to_string());
     Ok((base_url, project_id, timeout_secs))
 }
 

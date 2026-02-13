@@ -42,6 +42,7 @@ const DEFAULT_OPENAI_CHAT_TIMEOUT: u64 = 120;
 const DEFAULT_LOCAL_GPT_BASE_URL: &str = "http://127.0.0.1:8787";
 const DEFAULT_LOCAL_GPT_TIMEOUT: u64 = 240;
 const DEFAULT_LOCAL_GPT_DIRECT_PATH: &str = "/local-gpt-sse/direct";
+const DEFAULT_LOCAL_GPT_PROJECT_ID: &str = "g-p-698c11cf2bc08191b07e28128883fcbb-testapi";
 const DEFAULT_LIVE_PROMPT: &str =
     "Translate the following text to {target_language}. Output only the translated text.";
 
@@ -988,7 +989,7 @@ async fn generate_with_local_gpt(
         .project_id
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| "local-gpt project-id is required".to_string())?;
+        .unwrap_or_else(|| DEFAULT_LOCAL_GPT_PROJECT_ID.to_string());
     let url = format!(
         "{}/{}",
         base_url.trim_end_matches('/'),
