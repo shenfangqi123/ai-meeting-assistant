@@ -9,6 +9,7 @@ use crate::{
 };
 use eframe::egui;
 use serde::Deserialize;
+use std::fs;
 use std::sync::Arc;
 use std::time::Instant;
 use tauri::{AppHandle, Manager};
@@ -71,9 +72,45 @@ pub fn run(app: AppHandle) -> Result<(), String> {
     eframe::run_native(
         "AI Shepherd",
         options,
-        Box::new(move |_cc| Ok(Box::new(EguiApp::new(app_handle.clone())))),
+        Box::new(move |cc| {
+            install_cjk_fallback_fonts(cc);
+            Ok(Box::new(EguiApp::new(app_handle.clone())))
+        }),
     )
     .map_err(|err| err.to_string())
+}
+
+fn install_cjk_fallback_fonts(cc: &eframe::CreationContext<'_>) {
+    #[cfg(target_os = "windows")]
+    {
+        let candidates = [
+            r"C:\Windows\Fonts\msyh.ttc",   // Microsoft YaHei
+            r"C:\Windows\Fonts\simhei.ttf", // SimHei
+            r"C:\Windows\Fonts\meiryo.ttc", // Meiryo
+            r"C:\Windows\Fonts\msgothic.ttc",
+        ];
+
+        let Some((name, bytes)) = candidates.iter().find_map(|path| {
+            fs::read(path)
+                .ok()
+                .map(|bytes| (format!("cjk:{}", path), bytes))
+        }) else {
+            return;
+        };
+
+        let mut fonts = egui::FontDefinitions::default();
+        fonts
+            .font_data
+            .insert(name.clone(), egui::FontData::from_owned(bytes).into());
+
+        if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Proportional) {
+            family.insert(0, name.clone());
+        }
+        if let Some(family) = fonts.families.get_mut(&egui::FontFamily::Monospace) {
+            family.insert(0, name);
+        }
+        cc.egui_ctx.set_fonts(fonts);
+    }
 }
 
 struct EguiApp {
