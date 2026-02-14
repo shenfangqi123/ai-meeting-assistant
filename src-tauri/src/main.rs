@@ -3,6 +3,7 @@
 mod app_config;
 mod asr;
 mod audio;
+mod egui_app;
 mod ui_events;
 mod rag;
 mod transcribe;
@@ -46,6 +47,7 @@ const DEFAULT_LOCAL_GPT_DIRECT_PATH: &str = "/local-gpt-sse/direct";
 const DEFAULT_LOCAL_GPT_PROJECT_ID: &str = "g-p-698c11cf2bc08191b07e28128883fcbb-testapi";
 const DEFAULT_LIVE_PROMPT: &str =
     "Translate the following text to {target_language}. Output only the translated text.";
+const ENABLE_EGUI_UI: bool = true;
 
 #[derive(Debug, Deserialize)]
 struct LlmRequest {
@@ -1267,6 +1269,19 @@ fn main() {
             let window = app
                 .get_window("main")
                 .ok_or_else(|| to_boxed_error("main window not found".to_string()))?;
+
+            if ENABLE_EGUI_UI {
+                let app_handle = app.handle().clone();
+                let _ = window.hide();
+                std::thread::spawn(move || {
+                    if let Err(err) = egui_app::run(app_handle.clone()) {
+                        eprintln!("egui ui failed: {err}");
+                    }
+                    app_handle.exit(0);
+                });
+                return Ok(());
+            }
+
             let state = app.state::<LayoutState>();
 
             if app.get_webview(OUTPUT_LABEL).is_none() {
