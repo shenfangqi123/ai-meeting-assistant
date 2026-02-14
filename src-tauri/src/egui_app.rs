@@ -13,6 +13,8 @@ use std::sync::Arc;
 use std::time::Instant;
 use tauri::{AppHandle, Manager};
 use tokio::sync::broadcast::error::TryRecvError;
+#[cfg(target_os = "windows")]
+use winit::platform::windows::EventLoopBuilderExtWindows;
 
 #[derive(Debug, Clone, Deserialize)]
 struct WindowTranscript {
@@ -53,12 +55,18 @@ struct LiveTranslationError {
 const TRANSLATE_PROVIDER_ORDER: [&str; 3] = ["ollama", "openai", "local-gpt"];
 
 pub fn run(app: AppHandle) -> Result<(), String> {
-    let options = eframe::NativeOptions {
+    let mut options = eframe::NativeOptions {
         viewport: egui::ViewportBuilder::default()
             .with_title("AI Shepherd")
             .with_inner_size([1340.0, 900.0]),
         ..Default::default()
     };
+    #[cfg(target_os = "windows")]
+    {
+        options.event_loop_builder = Some(Box::new(|builder| {
+            builder.with_any_thread(true);
+        }));
+    }
     let app_handle = app.clone();
     eframe::run_native(
         "AI Shepherd",
