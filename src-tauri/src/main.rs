@@ -296,6 +296,20 @@ async fn rag_ask_with_provider(
     provider_state: State<'_, TranslateProviderState>,
     request: RagAskRequest,
 ) -> Result<RagAnswerResponse, String> {
+    let provider = provider_state
+        .provider
+        .lock()
+        .map(|value| normalize_translate_provider(&value))
+        .unwrap_or_else(|_| "ollama".to_string());
+    rag_ask_with_provider_inner(app, rag_state.inner().clone(), provider, request).await
+}
+
+async fn rag_ask_with_provider_inner(
+    app: AppHandle,
+    rag_state: Arc<RagState>,
+    provider: String,
+    request: RagAskRequest,
+) -> Result<RagAnswerResponse, String> {
     let query = request.query.trim().to_string();
     if query.is_empty() {
         return Err("query is empty".to_string());
@@ -305,18 +319,12 @@ async fn rag_ask_with_provider(
     }
     let top_k = request.top_k.unwrap_or(8).clamp(1, 20);
     let allow_out_of_context = request.allow_out_of_context.unwrap_or(false);
-    let provider = provider_state
-        .provider
-        .lock()
-        .map(|value| normalize_translate_provider(&value))
-        .unwrap_or_else(|_| "ollama".to_string());
 
-    let state = rag_state.inner().clone();
     let app_handle = app.clone();
     let search_query = query.clone();
     let project_ids = request.project_ids;
     let hits = tauri::async_runtime::spawn_blocking(move || {
-        state.with_service(&app_handle, |service| {
+        rag_state.with_service(&app_handle, |service| {
             service.search(&search_query, project_ids, top_k)
         })
     })

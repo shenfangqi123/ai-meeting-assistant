@@ -24,6 +24,42 @@ pub struct RagState {
     inner: Mutex<Option<RagService>>,
 }
 
+pub fn rag_index_sync_project_direct(
+    app: &AppHandle,
+    state: &Arc<RagState>,
+    request: IndexSyncRequest,
+) -> Result<IndexReport, String> {
+    let root_dir = request.root_dir.map(PathBuf::from);
+    state.with_service(app, |service| {
+        service.index_sync_project(app, &request.project_id, root_dir)
+    })
+}
+
+pub fn rag_search_direct(
+    app: &AppHandle,
+    state: &Arc<RagState>,
+    request: RagSearchRequest,
+) -> Result<RagSearchResponse, String> {
+    state.with_service(app, |service| {
+        let top_k = request.top_k.unwrap_or(8);
+        let hits = service.search(&request.query, request.project_ids, top_k)?;
+        Ok(RagSearchResponse { hits })
+    })
+}
+
+pub fn rag_project_delete_direct(
+    app: &AppHandle,
+    request: RagProjectDeleteRequest,
+) -> Result<RagProjectDeleteReport, String> {
+    let (deleted_files, deleted_chunks) = delete_project_index(app, &request.project_id)?;
+    let _ = remove_project(app, &request.project_id)?;
+    Ok(RagProjectDeleteReport {
+        project_id: request.project_id,
+        deleted_files,
+        deleted_chunks,
+    })
+}
+
 impl RagState {
     pub fn new() -> Self {
         Self {
@@ -75,12 +111,7 @@ pub async fn rag_index_sync_project(
 ) -> Result<IndexReport, String> {
     let state = state.inner().clone();
     let app = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let root_dir = request.root_dir.map(PathBuf::from);
-        state.with_service(&app, |service| {
-            service.index_sync_project(&app, &request.project_id, root_dir)
-        })
-    })
+    tauri::async_runtime::spawn_blocking(move || rag_index_sync_project_direct(&app, &state, request))
     .await
     .map_err(|err| err.to_string())?
 }
@@ -113,13 +144,7 @@ pub async fn rag_search(
 ) -> Result<RagSearchResponse, String> {
     let state = state.inner().clone();
     let app = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        state.with_service(&app, |service| {
-            let top_k = request.top_k.unwrap_or(8);
-            let hits = service.search(&request.query, request.project_ids, top_k)?;
-            Ok(RagSearchResponse { hits })
-        })
-    })
+    tauri::async_runtime::spawn_blocking(move || rag_search_direct(&app, &state, request))
     .await
     .map_err(|err| err.to_string())?
 }
@@ -153,15 +178,7 @@ pub async fn rag_project_delete(
     request: RagProjectDeleteRequest,
 ) -> Result<RagProjectDeleteReport, String> {
     let app = app.clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        let (deleted_files, deleted_chunks) = delete_project_index(&app, &request.project_id)?;
-        let _ = remove_project(&app, &request.project_id)?;
-        Ok(RagProjectDeleteReport {
-            project_id: request.project_id,
-            deleted_files,
-            deleted_chunks,
-        })
-    })
+    tauri::async_runtime::spawn_blocking(move || rag_project_delete_direct(&app, request))
     .await
     .map_err(|err| err.to_string())?
 }

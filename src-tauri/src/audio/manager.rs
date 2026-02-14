@@ -569,6 +569,17 @@ impl CaptureManager {
         queues.translation_queue.len() > 0
     }
 
+    pub fn is_running(&self) -> bool {
+        let guard = match self.handle.lock() {
+            Ok(guard) => guard,
+            Err(_) => return false,
+        };
+        let Some(handle) = guard.as_ref() else {
+            return false;
+        };
+        !handle.handle.is_finished()
+    }
+
     pub fn list(&self, app: AppHandle) -> Result<Vec<SegmentInfo>, String> {
         let segments_dir = ensure_segments_dir(&app)?;
         load_index_if_needed(&segments_dir, &self.segments);
