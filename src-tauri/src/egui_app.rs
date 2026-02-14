@@ -130,6 +130,7 @@ struct EguiApp {
     asr_fallback: bool,
     asr_language: String,
     translate_provider: String,
+    segment_translate_enabled: bool,
     status_line: String,
     projects: Vec<RagProject>,
     selected_project_id: String,
@@ -159,6 +160,7 @@ impl EguiApp {
             asr_fallback: true,
             asr_language: "ja".to_string(),
             translate_provider: "ollama".to_string(),
+            segment_translate_enabled: false,
             status_line: String::new(),
             projects: Vec::new(),
             selected_project_id: String::new(),
@@ -224,9 +226,18 @@ impl EguiApp {
 
     fn handle_event(&mut self, event: UiEventEnvelope) {
         match event.name.as_str() {
-            "segment_created" | "segment_transcribed" | "segment_translated" => {
+            "segment_created" | "segment_translated" => {
                 if let Some(info) = Self::parse_event::<SegmentInfo>(event) {
                     self.upsert_segment(info);
+                }
+            }
+            "segment_transcribed" => {
+                if let Some(info) = Self::parse_event::<SegmentInfo>(event) {
+                    let name = info.name.clone();
+                    self.upsert_segment(info);
+                    if self.segment_translate_enabled {
+                        self.request_segment_translation(&name);
+                    }
                 }
             }
             "segment_list_cleared" => {
@@ -295,6 +306,41 @@ impl EguiApp {
             }
             "live_translation_cleared" => self.reset_live(),
             _ => {}
+        }
+    }
+
+    fn request_segment_translation(&mut self, name: &str) {
+        let Some(manager) = self.app.try_state::<CaptureManager>() else {
+            self.set_status("capture manager unavailable");
+            return;
+        };
+        if let Err(err) = manager.translate_segment(
+            self.app.clone(),
+            name.to_string(),
+            Some(self.translate_provider.clone()),
+        ) {
+            self.set_status(format!("translate enqueue failed: {err}"));
+        }
+    }
+
+    fn queue_missing_segment_translations(&mut self) {
+        let names = self
+            .segments
+            .iter()
+            .filter(|segment| {
+                segment
+                    .transcript
+                    .as_deref()
+                    .is_some_and(|text| !text.trim().is_empty())
+                    && segment
+                        .translation
+                        .as_deref()
+                        .is_none_or(|text| text.trim().is_empty())
+            })
+            .map(|segment| segment.name.clone())
+            .collect::<Vec<_>>();
+        for name in names {
+            self.request_segment_translation(&name);
         }
     }
 
@@ -622,6 +668,12 @@ impl eframe::App for EguiApp {
                     .clicked()
                 {
                     self.cycle_translate_provider();
+                }
+                let changed = ui
+                    .checkbox(&mut self.segment_translate_enabled, "Auto Segment Translate")
+                    .changed();
+                if changed && self.segment_translate_enabled {
+                    self.queue_missing_segment_translations();
                 }
             });
         });
