@@ -73,7 +73,6 @@ dependencies = [
  "tauri",
  "tauri-build",
  "tokio",
- "url",
  "walkdir",
  "windows 0.58.0",
 ]

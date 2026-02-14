@@ -33,10 +33,8 @@ const DEFAULT_WHISPER_CONTEXT_RESET_SILENCE_MS: u64 = 4000;
 const WHISPER_CONTEXT_HISTORY_MULTIPLIER: usize = 3;
 
 fn emit_output_event<T: Serialize + Clone>(app: &AppHandle, event: &str, payload: T) {
-    crate::ui_events::emit(event, payload.clone());
-    if let Some(webview) = app.get_webview("output") {
-        let _ = webview.emit(event, payload);
-    }
+    let _ = app;
+    crate::ui_events::emit(event, payload);
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

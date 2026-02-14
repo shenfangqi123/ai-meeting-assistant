@@ -16,7 +16,8 @@
         "title": "AI Shepherd",
         "width": 1400,
         "height": 900,
-        "resizable": true
+        "resizable": true,
+        "visible": false
       }
     ],
     "security": {
