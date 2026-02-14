@@ -3,6 +3,7 @@
 mod app_config;
 mod asr;
 mod audio;
+mod ui_events;
 mod rag;
 mod transcribe;
 mod translate;
@@ -203,6 +204,7 @@ fn to_boxed_error(message: String) -> Box<dyn std::error::Error> {
 }
 
 fn emit_output<T: Serialize + Clone>(app: &AppHandle, event: &str, payload: T) {
+    ui_events::emit(event, payload.clone());
     if let Some(webview) = app.get_webview(OUTPUT_LABEL) {
         let _ = webview.emit(event, payload);
     }
@@ -253,17 +255,6 @@ fn resolve_translate_settings(
         .unwrap_or_else(|| "zh".to_string());
 
     Ok((provider, target_language, config))
-}
-
-#[tauri::command]
-async fn content_navigate(app: AppHandle, url: String) -> Result<(), String> {
-    let parsed_url = url::Url::parse(&url).map_err(|err| err.to_string())?;
-    let label = format!("meeting-{}", Local::now().timestamp_millis());
-    WebviewWindowBuilder::new(&app, label, WebviewUrl::External(parsed_url))
-        .title("Meeting")
-        .build()
-        .map_err(|err| err.to_string())?;
-    Ok(())
 }
 
 #[tauri::command]
@@ -1162,16 +1153,6 @@ async fn translate_segment(
 }
 
 #[tauri::command]
-async fn open_external_window(app: AppHandle, label: String, url: String) -> Result<(), String> {
-    let parsed_url = url::Url::parse(&url).map_err(|err| err.to_string())?;
-    WebviewWindowBuilder::new(&app, label, WebviewUrl::External(parsed_url))
-        .title("Meeting")
-        .build()
-        .map_err(|err| err.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
 fn open_intro_window(app: AppHandle) -> Result<(), String> {
     if let Some(window) = app.get_window("intro") {
         let _ = window.set_closable(true);
@@ -1318,9 +1299,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             llm_generate,
             translate_live,
-            open_external_window,
             open_intro_window,
-            content_navigate,
             set_top_height,
             start_loopback_capture,
             stop_loopback_capture,

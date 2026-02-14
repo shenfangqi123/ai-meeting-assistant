@@ -1,12 +1,9 @@
 ﻿import { invoke } from "@tauri-apps/api/core";
 
-const meetingUrlDefault = "https://zoom.us/signin";
 const SELECTED_PROJECT_STORAGE_KEY = "rag_selected_project_id";
 const PROJECT_MODAL_EXPANDED_HEIGHT = 9999;
 const PROJECT_MODAL_COLLAPSED_HEIGHT = 190;
 
-const urlInput = document.getElementById("urlInput");
-const loadBtn = document.getElementById("loadBtn");
 const introBtn = document.getElementById("introBtn");
 const asrProviderToggle = document.getElementById("asrProviderToggle");
 const translateProviderToggle = document.getElementById("translateProviderToggle");
@@ -78,12 +75,6 @@ let progressValue = 0;
 let ragSearchModalOpen = false;
 let ragSearchRunning = false;
 let stopCaptureChoiceResolver = null;
-
-const normalizeUrl = (raw) => {
-  if (!raw) return "";
-  if (raw.startsWith("http://") || raw.startsWith("https://")) return raw;
-  return `https://${raw}`;
-};
 
 const normalizeRootPath = (value) => {
   if (!value) return "";
@@ -826,22 +817,6 @@ const stopCapture = async () => {
   updateCaptureUi(false);
 };
 
-loadBtn?.addEventListener("click", async () => {
-  const url = normalizeUrl(urlInput?.value.trim());
-  if (!url) return;
-  try {
-    await invoke("content_navigate", { url });
-  } catch (error) {
-    logError(`load error: ${error}`);
-  }
-});
-
-urlInput?.addEventListener("keydown", (event) => {
-  if (event.key === "Enter") {
-    loadBtn?.click();
-  }
-});
-
 splitter?.addEventListener("pointerdown", (event) => {
   resizeState = {
     startY: event.clientY,
@@ -1041,10 +1016,6 @@ loadAsrSettings();
 loadTranslateProvider();
 void loadProjects();
 renderProjectDraft();
-
-if (urlInput) {
-  urlInput.value = meetingUrlDefault;
-}
 
 
 
