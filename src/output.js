@@ -44,6 +44,7 @@ let questionsEnabled = false;
 let autoScrollEnabled = false;
 let transcriptionRunning = false;
 let translationRunning = false;
+let translationStartOrderFloor = Number.NEGATIVE_INFINITY;
 let draggingSplit = null;
 let translationInvokeRunning = false;
 let liveStreamOrder = Number.NEGATIVE_INFINITY;
@@ -170,6 +171,17 @@ const compareInfoOrder = (left, right) => {
   const leftName = left?.name || "";
   const rightName = right?.name || "";
   return leftName.localeCompare(rightName);
+};
+
+const latestTranscribedOrder = () => {
+  let latest = Number.NEGATIVE_INFINITY;
+  for (const entry of segmentMap.values()) {
+    if (!normalizeText(entry?.info?.transcript)) {
+      continue;
+    }
+    latest = Math.max(latest, orderValue(entry.info));
+  }
+  return latest;
 };
 
 const saveAutoScrollEnabled = (enabled) => {
@@ -466,6 +478,7 @@ const drainRowTranslationQueue = async () => {
 const queueRowTranslation = (entry) => {
   if (!translateEnabled || !translationRunning || !entry?.info?.name) return;
   const name = entry.info.name;
+  if (orderValue(entry.info) < translationStartOrderFloor) return;
   if (!normalizeText(entry.info.transcript)) return;
   if (hasTranslationText(entry.info.translation)) return;
   if (rowTranslationRequested.has(name)) return;
@@ -907,6 +920,12 @@ const setTranscriptionRunningState = async (enabled) => {
 };
 
 const setTranslationRunningState = async (enabled) => {
+  if (enabled) {
+    await loadSegments();
+    translationStartOrderFloor = latestTranscribedOrder();
+  } else {
+    translationStartOrderFloor = Number.NEGATIVE_INFINITY;
+  }
   await invoke("set_translation_enabled", { enabled });
   translationRunning = !!enabled;
   if (!translationRunning) {
