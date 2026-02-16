@@ -622,12 +622,8 @@ impl CaptureManager {
                 queues.translation_queue.clear();
             }
         }
-        if let Some(webview) = app.get_webview("output") {
-            let _ = webview.emit("segment_list_cleared", true);
-        }
-        if let Some(webview) = app.get_webview("output") {
-            let _ = webview.emit("live_translation_cleared", true);
-        }
+        let _ = app.emit("segment_list_cleared", true);
+        let _ = app.emit("live_translation_cleared", true);
         Ok(())
     }
 
@@ -690,9 +686,7 @@ impl CaptureManager {
                 queues.translation_queue.clear();
             }
         }
-        if let Some(webview) = app.get_webview("output") {
-            let _ = webview.emit("segment_translation_canceled", true);
-        }
+        let _ = app.emit("segment_translation_canceled", true);
     }
 }
 
@@ -1010,9 +1004,7 @@ fn apply_transcript(
     }
 
     if let Some(info) = updated {
-        if let Some(webview) = app.get_webview("output") {
-            let _ = webview.emit("segment_transcribed", info.clone());
-        }
+        let _ = app.emit("segment_transcribed", info.clone());
     }
 
     let _ = transcript_text;
@@ -1474,9 +1466,7 @@ fn run_window_worker(
             speaker_similarity,
             speaker_mixed,
         };
-        if let Some(webview) = app.get_webview("output") {
-            let _ = webview.emit("window_transcribed", payload.clone());
-        }
+        let _ = app.emit("window_transcribed", payload.clone());
 
         in_flight.store(false, Ordering::SeqCst);
     }
@@ -1506,9 +1496,7 @@ fn apply_translation(
     }
 
     if let Some(info) = updated {
-        if let Some(webview) = app.get_webview("output") {
-            let _ = webview.emit("segment_translated", info.clone());
-        }
+        let _ = app.emit("segment_translated", info.clone());
     }
 }
 
@@ -1770,7 +1758,5 @@ fn push_segment(
     if let Some(snapshot) = snapshot {
         let _ = save_index(dir, &snapshot);
     }
-    if let Some(webview) = app.get_webview("output") {
-        let _ = webview.emit("segment_created", info.clone());
-    }
+    let _ = app.emit("segment_created", info.clone());
 }

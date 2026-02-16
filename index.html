@@ -7,57 +7,62 @@
     <link rel="stylesheet" href="/src/style.css" />
   </head>
   <body>
-    <div id="app">
-      <header class="top-bar">
-        <section class="panel">
-          <div class="row">
-            <label class="field">
-              <span>URL</span>
-              <input id="urlInput" type="text" placeholder="https://meet.google.com" />
-            </label>
-            <button id="loadBtn" class="primary">加载到下方</button>
-            <div class="group">
-              <span class="label">ASR</span>
-              <button id="asrProviderToggle" class="provider-toggle" type="button">Whisper.cpp</button>
-              <label class="field compact">
-                <span>语言</span>
-                <select id="asrLanguage">
-                  <option value="zh">中文</option>
-                  <option value="en">English</option>
-                  <option value="ja">日本語</option>
-                </select>
-              </label>
-              <label class="toggle">
-                <input id="asrFallbackToggle" type="checkbox" />
-                OpenAI回退
-              </label>
-            </div>
-            <div class="group">
-              <span class="label">翻译引擎</span>
-              <button id="translateProviderToggle" class="provider-toggle" type="button">Ollama</button>
-            </div>
-            <button id="projectSettingsBtn" class="secondary" type="button">项目管理</button>
-            <button id="introBtn" class="secondary" type="button">自己紹介</button>
-          </div>
-          <div class="section">
+    <div id="layoutRoot">
+      <div id="app">
+        <header class="top-bar">
+          <section class="panel">
             <div class="row">
-              <button id="asrStart" class="primary">开始采集</button>
-              <span id="captureStatus" class="status">未采集</span>
-              <button id="clearSegments">清空录音</button>
-              <label class="field compact">
-                <span>项目</span>
-                <select id="projectQuickSelect">
-                  <option value=""></option>
-                </select>
+              <label class="field">
+                <span>URL</span>
+                <input id="urlInput" type="text" placeholder="https://meet.google.com" />
               </label>
-              <button id="ragSearchBtn" type="button">测试RAG</button>
-              <span id="currentProjectLabel" class="status">当前项目：未选择</span>
+              <button id="loadBtn" class="primary">加载到下方</button>
+              <div class="group">
+                <span class="label">ASR</span>
+                <button id="asrProviderToggle" class="provider-toggle" type="button">Whisper.cpp</button>
+                <label class="field compact">
+                  <span>语言</span>
+                  <select id="asrLanguage">
+                    <option value="zh">中文</option>
+                    <option value="en">English</option>
+                    <option value="ja">日本語</option>
+                  </select>
+                </label>
+                <label class="toggle">
+                  <input id="asrFallbackToggle" type="checkbox" />
+                  OpenAI回退
+                </label>
+              </div>
+              <div class="group">
+                <span class="label">翻译引擎</span>
+                <button id="translateProviderToggle" class="provider-toggle" type="button">Ollama</button>
+              </div>
+              <button id="projectSettingsBtn" class="secondary" type="button">项目管理</button>
+              <button id="introBtn" class="secondary" type="button">自己紹介</button>
             </div>
-          </div>
-        </section>
-      </header>
+            <div class="section">
+              <div class="row">
+                <button id="asrStart" class="primary">开始采集</button>
+                <span id="captureStatus" class="status">未采集</span>
+                <button id="clearSegments">清空录音</button>
+                <label class="field compact">
+                  <span>项目</span>
+                  <select id="projectQuickSelect">
+                    <option value=""></option>
+                  </select>
+                </label>
+                <button id="ragSearchBtn" type="button">测试RAG</button>
+                <span id="currentProjectLabel" class="status">当前项目：未选择</span>
+              </div>
+            </div>
+          </section>
+        </header>
+      </div>
+      <div id="splitter" class="splitter" title="拖动调整上下区域高度"></div>
+      <div id="outputPane" aria-label="Segment output">
+        <iframe id="outputFrame" src="/blank.html" title="Output panel"></iframe>
+      </div>
     </div>
-    <div id="splitter" class="splitter" title="拖动调整上下区域高度"></div>
     <div id="projectModal" class="project-modal-backdrop hidden" aria-hidden="true">
       <div class="project-modal" role="dialog" aria-modal="true" aria-labelledby="projectModalTitle">
         <button id="projectModalClose" class="project-modal-close" type="button" aria-label="关闭">×</button>

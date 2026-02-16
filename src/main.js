@@ -2,8 +2,12 @@
 
 const meetingUrlDefault = "https://zoom.us/signin";
 const SELECTED_PROJECT_STORAGE_KEY = "rag_selected_project_id";
+const TOP_PANE_HEIGHT_STORAGE_KEY = "main_top_pane_height";
 const PROJECT_MODAL_EXPANDED_HEIGHT = 9999;
 const PROJECT_MODAL_COLLAPSED_HEIGHT = 190;
+const MIN_TOP_PANE_HEIGHT = 190;
+const MIN_BOTTOM_PANE_HEIGHT = 100;
+const SPLITTER_HEIGHT = 10;
 
 const urlInput = document.getElementById("urlInput");
 const loadBtn = document.getElementById("loadBtn");
@@ -78,6 +82,7 @@ let progressValue = 0;
 let ragSearchModalOpen = false;
 let ragSearchRunning = false;
 let stopCaptureChoiceResolver = null;
+let topPaneHeight = PROJECT_MODAL_COLLAPSED_HEIGHT;
 
 const normalizeUrl = (raw) => {
   if (!raw) return "";
@@ -101,6 +106,45 @@ const basenameFromPath = (value) => {
 const logError = (message) => {
   if (message) {
     console.warn(message);
+  }
+};
+
+const loadTopPaneHeight = () => {
+  try {
+    const raw = localStorage.getItem(TOP_PANE_HEIGHT_STORAGE_KEY);
+    if (!raw) return PROJECT_MODAL_COLLAPSED_HEIGHT;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed)) return PROJECT_MODAL_COLLAPSED_HEIGHT;
+    return parsed;
+  } catch (_) {
+    return PROJECT_MODAL_COLLAPSED_HEIGHT;
+  }
+};
+
+const saveTopPaneHeight = (height) => {
+  try {
+    localStorage.setItem(TOP_PANE_HEIGHT_STORAGE_KEY, String(Math.round(height)));
+  } catch (_) {
+    // Ignore unavailable storage.
+  }
+};
+
+const currentLayoutPadding = () => (window.innerWidth <= 900 ? 12 : 20);
+
+const clampTopPaneHeight = (height) => {
+  const maxAllowed = Math.max(
+    MIN_TOP_PANE_HEIGHT,
+    window.innerHeight - currentLayoutPadding() - SPLITTER_HEIGHT - MIN_BOTTOM_PANE_HEIGHT
+  );
+  return Math.min(maxAllowed, Math.max(MIN_TOP_PANE_HEIGHT, Number(height) || MIN_TOP_PANE_HEIGHT));
+};
+
+const setTopPaneHeight = async (height, persist = true) => {
+  const clamped = clampTopPaneHeight(height);
+  topPaneHeight = clamped;
+  document.documentElement.style.setProperty("--top-pane-height", `${clamped}px`);
+  if (persist) {
+    saveTopPaneHeight(clamped);
   }
 };
 
@@ -209,9 +253,7 @@ const openRagSearchModal = () => {
     window.alert("Please select a project first");
     return;
   }
-  void invoke("set_top_height", { height: PROJECT_MODAL_EXPANDED_HEIGHT }).catch((error) => {
-    logError(`expand top error: ${error}`);
-  });
+  void setTopPaneHeight(PROJECT_MODAL_EXPANDED_HEIGHT);
   ragSearchModalOpen = true;
   ragSearchModal.classList.remove("hidden");
   ragSearchModal.setAttribute("aria-hidden", "false");
@@ -229,9 +271,7 @@ const closeRagSearchModal = () => {
   ragSearchModalOpen = false;
   ragSearchModal.classList.add("hidden");
   ragSearchModal.setAttribute("aria-hidden", "true");
-  void invoke("set_top_height", { height: PROJECT_MODAL_COLLAPSED_HEIGHT }).catch((error) => {
-    logError(`collapse top error: ${error}`);
-  });
+  void setTopPaneHeight(PROJECT_MODAL_COLLAPSED_HEIGHT);
 };
 
 const runRagSearch = async () => {
@@ -593,11 +633,7 @@ const loadProjects = async () => {
 
 const openProjectModal = async () => {
   if (!projectModal) return;
-  try {
-    await invoke("set_top_height", { height: PROJECT_MODAL_EXPANDED_HEIGHT });
-  } catch (error) {
-    logError(`expand top error: ${error}`);
-  }
+  await setTopPaneHeight(PROJECT_MODAL_EXPANDED_HEIGHT);
   isProjectModalOpen = true;
   projectModal.classList.remove("hidden");
   projectModal.setAttribute("aria-hidden", "false");
@@ -610,9 +646,7 @@ const closeProjectModal = () => {
   isProjectModalOpen = false;
   projectModal.classList.add("hidden");
   projectModal.setAttribute("aria-hidden", "true");
-  void invoke("set_top_height", { height: PROJECT_MODAL_COLLAPSED_HEIGHT }).catch((error) => {
-    logError(`collapse top error: ${error}`);
-  });
+  void setTopPaneHeight(PROJECT_MODAL_COLLAPSED_HEIGHT);
 };
 
 const createProjectAndSyncFromSelection = async (projectName, rootDir) => {
@@ -776,12 +810,8 @@ const loadTranslateProvider = async () => {
 const scheduleResize = (height) => {
   pendingResize = height;
   if (resizeFrame) return;
-  resizeFrame = requestAnimationFrame(async () => {
-    try {
-      await invoke("set_top_height", { height: pendingResize });
-    } catch (error) {
-      logError(`resize error: ${error}`);
-    }
+  resizeFrame = requestAnimationFrame(() => {
+    void setTopPaneHeight(pendingResize);
     resizeFrame = null;
   });
 };
@@ -845,7 +875,7 @@ urlInput?.addEventListener("keydown", (event) => {
 splitter?.addEventListener("pointerdown", (event) => {
   resizeState = {
     startY: event.clientY,
-    startHeight: window.innerHeight,
+    startHeight: topPaneHeight,
   };
   splitter.setPointerCapture(event.pointerId);
   splitter.classList.add("dragging");
@@ -865,6 +895,9 @@ const endResize = () => {
 
 window.addEventListener("pointerup", endResize);
 window.addEventListener("pointercancel", endResize);
+window.addEventListener("resize", () => {
+  void setTopPaneHeight(topPaneHeight, false);
+});
 stopCaptureTranscribeOnlyBtn?.addEventListener("click", () => {
   resolveStopCaptureChoice("transcribe_only");
 });
@@ -1037,6 +1070,8 @@ if (savedProjectId) {
 }
 
 updateCurrentProjectLabel();
+topPaneHeight = loadTopPaneHeight();
+void setTopPaneHeight(topPaneHeight, false);
 loadAsrSettings();
 loadTranslateProvider();
 void loadProjects();

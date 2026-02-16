@@ -20,19 +20,14 @@ use rag::{
 use serde::{Deserialize, Serialize};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
-use tauri::webview::WebviewBuilder;
 use tauri::{
-    AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, Webview, WebviewUrl,
-    WebviewWindowBuilder, Window, WindowEvent,
+    AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder,
 };
 use whisper_server::WhisperServerManager;
 
-const OUTPUT_LABEL: &str = "output";
-const OUTPUT_URL: &str = "blank.html";
 const INTRO_URL: &str = "intro.html";
 const MIN_TOP_HEIGHT: f64 = 190.0;
 const MAX_TOP_HEIGHT: f64 = 10_000.0;
-const MIN_BOTTOM_HEIGHT: f64 = 100.0;
 const DEFAULT_OLLAMA_BASE_URL: &str = "http://localhost:11434";
 const DEFAULT_OLLAMA_TIMEOUT: u64 = 600;
 const DEFAULT_OLLAMA_MODEL: &str = "gpt-oss:20b";
@@ -119,93 +114,8 @@ struct TranslateProviderState {
     provider: Mutex<String>,
 }
 
-struct Layout {
-    width: f64,
-    top_height: f64,
-    bottom_height: f64,
-}
-
-fn compute_layout(window: &Window, override_top: Option<f64>) -> Result<Layout, String> {
-    let size = window.inner_size().map_err(|err| err.to_string())?;
-    let scale = window.scale_factor().map_err(|err| err.to_string())?;
-    let width = size.width as f64 / scale;
-    let height = size.height as f64 / scale;
-
-    let target = MIN_TOP_HEIGHT;
-    let max_allowed = (height - MIN_BOTTOM_HEIGHT).max(120.0);
-    let override_top = override_top.filter(|value| value.is_finite() && *value > 0.0);
-    let mut top_height = override_top.unwrap_or(target);
-    top_height = top_height.max(MIN_TOP_HEIGHT);
-    top_height = top_height.min(MAX_TOP_HEIGHT);
-    top_height = top_height.min(max_allowed);
-    let bottom_height = (height - top_height).max(120.0);
-
-    Ok(Layout {
-        width,
-        top_height,
-        bottom_height,
-    })
-}
-
-fn main_webview(window: &Window) -> Result<Webview, String> {
-    window
-        .webviews()
-        .into_iter()
-        .find(|webview| webview.label() == window.label())
-        .ok_or_else(|| "main webview not found".to_string())
-}
-
-fn read_top_override(state: &LayoutState) -> Option<f64> {
-    match state.top_height.lock() {
-        Ok(guard) => *guard,
-        Err(_) => None,
-    }
-}
-
-fn apply_layout(
-    window: &Window,
-    output: &Webview,
-    override_top: Option<f64>,
-) -> Result<Layout, String> {
-    let layout = compute_layout(window, override_top)?;
-    let main = main_webview(window)?;
-
-    main.set_position(LogicalPosition::new(0.0, 0.0))
-        .map_err(|err| err.to_string())?;
-    main.set_size(LogicalSize::new(layout.width, layout.top_height))
-        .map_err(|err| err.to_string())?;
-
-    output
-        .set_position(LogicalPosition::new(0.0, layout.top_height))
-        .map_err(|err| err.to_string())?;
-    output
-        .set_size(LogicalSize::new(layout.width, layout.bottom_height))
-        .map_err(|err| err.to_string())?;
-
-    Ok(layout)
-}
-
-fn create_output_webview(window: &Window) -> Result<Webview, String> {
-    let layout = compute_layout(window, None)?;
-    let builder = WebviewBuilder::new(OUTPUT_LABEL, WebviewUrl::App(OUTPUT_URL.into()));
-
-    window
-        .add_child(
-            builder,
-            LogicalPosition::new(0.0, layout.top_height),
-            LogicalSize::new(layout.width, layout.bottom_height),
-        )
-        .map_err(|err| err.to_string())
-}
-
-fn to_boxed_error(message: String) -> Box<dyn std::error::Error> {
-    Box::new(std::io::Error::new(std::io::ErrorKind::Other, message))
-}
-
 fn emit_output<T: Serialize + Clone>(app: &AppHandle, event: &str, payload: T) {
-    if let Some(webview) = app.get_webview(OUTPUT_LABEL) {
-        let _ = webview.emit(event, payload);
-    }
+    let _ = app.emit(event, payload);
 }
 
 fn resolve_live_prompt_template(config: &app_config::AppConfig) -> String {
@@ -268,20 +178,16 @@ async fn content_navigate(app: AppHandle, url: String) -> Result<(), String> {
 
 #[tauri::command]
 async fn set_top_height(
-    app: AppHandle,
+    _app: AppHandle,
     state: State<'_, LayoutState>,
     height: f64,
 ) -> Result<(), String> {
-    let window = app
-        .get_window("main")
-        .ok_or_else(|| "main window not found".to_string())?;
-    let output = app
-        .get_webview(OUTPUT_LABEL)
-        .ok_or_else(|| "output webview not found".to_string())?;
-
-    let layout = apply_layout(&window, &output, Some(height))?;
+    let clamped = height
+        .max(MIN_TOP_HEIGHT)
+        .min(MAX_TOP_HEIGHT)
+        .max(MIN_TOP_HEIGHT);
     if let Ok(mut guard) = state.top_height.lock() {
-        *guard = Some(layout.top_height);
+        *guard = Some(clamped);
     }
     Ok(())
 }
@@ -1285,36 +1191,6 @@ fn main() {
                     }
                 });
             }
-
-            let window = app
-                .get_window("main")
-                .ok_or_else(|| to_boxed_error("main window not found".to_string()))?;
-            let state = app.state::<LayoutState>();
-
-            if app.get_webview(OUTPUT_LABEL).is_none() {
-                let _output = create_output_webview(&window).map_err(to_boxed_error)?;
-            }
-            let app_handle = app.handle().clone();
-            let window_label = window.label().to_string();
-            window.on_window_event(move |event| {
-                if matches!(event, WindowEvent::Resized(_)) {
-                    let Some(window) = app_handle.get_window(&window_label) else {
-                        return;
-                    };
-                    let Some(output) = app_handle.get_webview(OUTPUT_LABEL) else {
-                        return;
-                    };
-                    let state = app_handle.state::<LayoutState>();
-                    let override_top = read_top_override(&state);
-                    if let Err(err) = apply_layout(&window, &output, override_top) {
-                        eprintln!("layout error: {err}");
-                    }
-                }
-            });
-
-            let output = app.get_webview(OUTPUT_LABEL).unwrap();
-            let override_top = read_top_override(&state);
-            apply_layout(&window, &output, override_top).map_err(to_boxed_error)?;
 
             Ok(())
         })
