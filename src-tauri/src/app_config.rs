@@ -103,6 +103,11 @@ pub struct AsrConfig {
     pub whisper_context_short_segment_ms: Option<u64>,
     pub whisper_context_boundary_gap_ms: Option<u64>,
     pub whisper_context_reset_silence_ms: Option<u64>,
+    pub whisper_vad_min_speech_ratio: Option<f32>,
+    pub whisper_vad_min_speech_ms: Option<u64>,
+    pub transcript_post_filter_enabled: Option<bool>,
+    pub transcript_noise_max_meaningful_chars: Option<usize>,
+    pub transcript_repeat_char_ratio: Option<f32>,
 }
 
 impl Default for AsrConfig {
@@ -129,6 +134,11 @@ impl Default for AsrConfig {
             whisper_context_short_segment_ms: Some(2500),
             whisper_context_boundary_gap_ms: Some(1200),
             whisper_context_reset_silence_ms: Some(4000),
+            whisper_vad_min_speech_ratio: Some(0.25),
+            whisper_vad_min_speech_ms: Some(350),
+            transcript_post_filter_enabled: Some(true),
+            transcript_noise_max_meaningful_chars: Some(10),
+            transcript_repeat_char_ratio: Some(0.72),
         }
     }
 }

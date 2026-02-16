@@ -897,7 +897,7 @@ fn finalize_segment_with_vad(
         let _ = fs::remove_file(&path);
         return;
     }
-    let should_keep = match should_keep_segment(&path, asr_config) {
+    let should_keep = match should_keep_segment(&path, info.duration_ms, asr_config) {
         Ok(result) => result,
         Err(err) => {
             eprintln!("vad check failed: {err}");
@@ -1050,7 +1050,7 @@ fn take_tail_chars(text: &str, max_chars: usize) -> String {
 fn is_known_whisper_hallucination(text: &str) -> bool {
     let compact = text
         .trim()
-        .trim_matches(|c| matches!(c, '(' | ')' | '（' | '）' | '[' | ']' | '【' | '】'))
+        .trim_matches(|c| matches!(c, '(' | ')' | '[' | ']'))
         .chars()
         .filter(|c| !c.is_whitespace())
         .collect::<String>();
@@ -1058,10 +1058,103 @@ fn is_known_whisper_hallucination(text: &str) -> bool {
         return false;
     }
 
+    let compact_lower = compact.to_lowercase();
+    compact_lower == "字幕製作:貝爾"
+        || compact_lower == "字幕製作：貝爾"
+        || compact_lower == "字幕制作:贝尔"
+        || compact_lower == "字幕制作：贝尔"
+}
+
+fn is_meaningful_char(ch: char) -> bool {
+    if ch.is_ascii_alphanumeric() {
+        return true;
+    }
+    let code = ch as u32;
     matches!(
-        compact.as_str(),
-        "字幕製作:貝爾" | "字幕製作：貝爾" | "字幕制作:贝尔" | "字幕制作：贝尔"
+        code,
+        0x3040..=0x30ff // Hiragana + Katakana
+            | 0x3400..=0x4dbf // CJK Extension A
+            | 0x4e00..=0x9fff // CJK Unified Ideographs
+            | 0xac00..=0xd7af // Hangul Syllables
     )
+}
+
+fn most_frequent_char_ratio(text: &str) -> f32 {
+    let mut counts: HashMap<char, usize> = HashMap::new();
+    let mut total = 0usize;
+    for ch in text.chars().filter(|ch| is_meaningful_char(*ch)) {
+        *counts.entry(ch).or_insert(0) += 1;
+        total += 1;
+    }
+    if total == 0 {
+        return 0.0;
+    }
+    let max_count = counts.values().copied().max().unwrap_or(0);
+    max_count as f32 / total as f32
+}
+
+fn count_noise_keyword_hits(text: &str) -> usize {
+    const NOISE_KEYWORDS: [&str; 14] = [
+        "music",
+        "bgm",
+        "applause",
+        "字幕",
+        "音楽",
+        "音乐",
+        "背景音",
+        "环境音",
+        "掌声",
+        "笑声",
+        "効果音",
+        "拍手",
+        "♪",
+        "♫",
+    ];
+    let lower = text.to_lowercase();
+    NOISE_KEYWORDS
+        .iter()
+        .filter(|keyword| lower.contains(**keyword))
+        .count()
+}
+
+fn should_drop_non_speech_transcript(text: &str, asr_config: &AsrConfig) -> bool {
+    if asr_config.transcript_post_filter_enabled == Some(false) {
+        return false;
+    }
+    let meaningful_chars = text.chars().filter(|ch| is_meaningful_char(*ch)).count();
+    let noise_max_meaningful = asr_config
+        .transcript_noise_max_meaningful_chars
+        .unwrap_or(10)
+        .max(1);
+    let repeat_ratio_threshold = asr_config
+        .transcript_repeat_char_ratio
+        .unwrap_or(0.72)
+        .clamp(0.50, 0.98);
+    let noise_keyword_hits = count_noise_keyword_hits(text);
+
+    if noise_keyword_hits > 0 && meaningful_chars <= noise_max_meaningful {
+        return true;
+    }
+    if meaningful_chars >= 6 && most_frequent_char_ratio(text) >= repeat_ratio_threshold {
+        return true;
+    }
+    false
+}
+
+fn sanitize_transcript_text(raw: String, asr_config: &AsrConfig, name: &str) -> String {
+    let trimmed = raw.trim().to_string();
+    if trimmed.is_empty() {
+        return String::new();
+    }
+    if is_known_whisper_hallucination(&trimmed) {
+        eprintln!("[transcribe] drop likely whisper hallucination name={name}");
+        return String::new();
+    }
+    if should_drop_non_speech_transcript(&trimmed, asr_config) {
+        eprintln!("[transcribe] drop likely non-speech transcript name={name}");
+        return String::new();
+    }
+    trimmed
 }
 
 fn run_transcription_worker(
@@ -1076,6 +1169,10 @@ fn run_transcription_worker(
     drop_segment_translation: Arc<AtomicBool>,
 ) {
     let mut context_state = WhisperContextState::new(load_whisper_context_policy());
+    let asr_filter_config = load_app_config()
+        .ok()
+        .and_then(|cfg| cfg.asr)
+        .unwrap_or_default();
     while let Ok(task) = rx.recv() {
         if task.generation != transcription_generation.load(Ordering::SeqCst) {
             continue;
@@ -1098,14 +1195,7 @@ fn run_transcription_worker(
                 Some(String::new())
             }
         };
-        let transcript = transcript.map(|text| {
-            if is_known_whisper_hallucination(&text) {
-                eprintln!("[transcribe] drop likely whisper hallucination name={name}");
-                String::new()
-            } else {
-                text
-            }
-        });
+        let transcript = transcript.map(|text| sanitize_transcript_text(text, &asr_filter_config, &name));
         context_state.observe_result(meta.as_ref(), transcript.as_deref());
         let elapsed_ms = started_at.elapsed().as_millis() as u64;
         apply_transcript(&app, &dir, &segments, &name, transcript, elapsed_ms);
@@ -1525,7 +1615,7 @@ fn apply_translation(
     }
 }
 
-fn should_keep_segment(path: &Path, asr_config: &AsrConfig) -> Result<bool, String> {
+fn should_keep_segment(path: &Path, segment_ms: u64, asr_config: &AsrConfig) -> Result<bool, String> {
     if asr_config.use_whisper_vad != Some(true) {
         return Ok(true);
     }
@@ -1561,7 +1651,112 @@ fn should_keep_segment(path: &Path, asr_config: &AsrConfig) -> Result<bool, Stri
     }
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    Ok(!stdout.trim().is_empty())
+    let has_any_speech = !stdout.trim().is_empty();
+    if !has_any_speech {
+        return Ok(false);
+    }
+
+    let min_speech_ms = asr_config.whisper_vad_min_speech_ms.unwrap_or(350);
+    let min_speech_ratio = asr_config
+        .whisper_vad_min_speech_ratio
+        .unwrap_or(0.25)
+        .clamp(0.0, 1.0);
+    if let Some(speech_ms) = estimate_speech_ms_from_vad_output(&stdout, segment_ms) {
+        let total_ms = segment_ms.max(1);
+        let ratio = speech_ms as f32 / total_ms as f32;
+        if speech_ms < min_speech_ms || ratio < min_speech_ratio {
+            eprintln!(
+                "drop by VAD threshold speech_ms={} segment_ms={} ratio={:.3} min_ms={} min_ratio={:.3}",
+                speech_ms, total_ms, ratio, min_speech_ms, min_speech_ratio
+            );
+            return Ok(false);
+        }
+        return Ok(true);
+    }
+
+    // Keep legacy behavior when VAD output format cannot be parsed.
+    Ok(true)
+}
+
+fn estimate_speech_ms_from_vad_output(stdout: &str, segment_ms: u64) -> Option<u64> {
+    let mut total_ms = 0.0f64;
+    let mut found = false;
+    for line in stdout.lines() {
+        if let Some((start_ms, end_ms)) = parse_vad_range_ms(line, segment_ms) {
+            if end_ms > start_ms {
+                total_ms += end_ms - start_ms;
+                found = true;
+            }
+        }
+    }
+    if !found {
+        return None;
+    }
+    Some(total_ms.max(0.0).round() as u64)
+}
+
+fn parse_vad_range_ms(line: &str, segment_ms: u64) -> Option<(f64, f64)> {
+    let numbers = extract_numbers(line);
+    if numbers.len() < 2 {
+        return None;
+    }
+    let start = numbers[numbers.len().saturating_sub(2)];
+    let end = numbers[numbers.len().saturating_sub(1)];
+    if end <= start {
+        return None;
+    }
+
+    let lower = line.to_lowercase();
+    let unit_scale = if lower.contains("ms") {
+        1.0
+    } else if lower.contains("sec") {
+        1000.0
+    } else {
+        infer_vad_unit_scale(start, end, segment_ms)
+    };
+
+    Some((start * unit_scale, end * unit_scale))
+}
+
+fn infer_vad_unit_scale(start: f64, end: f64, segment_ms: u64) -> f64 {
+    let segment_ms = segment_ms.max(1) as f64;
+    let duration_raw = (end - start).max(0.0);
+    let duration_as_ms = duration_raw;
+    let duration_as_sec = duration_raw * 1000.0;
+    let ms_plausible = duration_as_ms <= segment_ms * 1.5;
+    let sec_plausible = duration_as_sec <= segment_ms * 1.5;
+
+    match (ms_plausible, sec_plausible) {
+        (false, true) => 1000.0,
+        (true, false) => 1.0,
+        (true, true) => {
+            if duration_as_sec > duration_as_ms * 10.0 {
+                1000.0
+            } else {
+                1.0
+            }
+        }
+        _ => 1.0,
+    }
+}
+
+fn extract_numbers(text: &str) -> Vec<f64> {
+    let mut numbers = Vec::new();
+    let mut buf = String::new();
+    for ch in text.chars() {
+        if ch.is_ascii_digit() || ch == '.' || ch == '-' {
+            buf.push(ch);
+            continue;
+        }
+        if let Ok(value) = buf.parse::<f64>() {
+            numbers.push(value);
+        }
+        buf.clear();
+    }
+    if let Ok(value) = buf.parse::<f64>() {
+        numbers.push(value);
+    }
+    numbers
 }
 
 fn is_silence(pcm: &[f32], threshold_db: f32) -> bool {
