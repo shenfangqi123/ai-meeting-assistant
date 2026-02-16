@@ -84,6 +84,9 @@ pub struct SpeakerConfig {
 pub struct AsrConfig {
     pub provider: Option<String>,
     pub whisper_backend: Option<String>,
+    pub whisper_pipe_path: Option<String>,
+    pub whisper_pipe_args: Option<Vec<String>>,
+    pub whisper_pipe_timeout_secs: Option<u64>,
     pub whisper_cpp_model_path: Option<String>,
     pub whisper_server_path: Option<String>,
     pub whisper_server_gpu_path: Option<String>,
@@ -116,6 +119,9 @@ impl Default for AsrConfig {
         Self {
             provider: Some("whisperserver".to_string()),
             whisper_backend: Some("server".to_string()),
+            whisper_pipe_path: None,
+            whisper_pipe_args: None,
+            whisper_pipe_timeout_secs: None,
             whisper_cpp_model_path: Some("resources/models/ggml-base.bin".to_string()),
             whisper_server_path: None,
             whisper_server_gpu_path: None,
