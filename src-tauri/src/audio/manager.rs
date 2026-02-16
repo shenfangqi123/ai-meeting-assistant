@@ -1094,10 +1094,15 @@ fn most_frequent_char_ratio(text: &str) -> f32 {
 }
 
 fn count_noise_keyword_hits(text: &str) -> usize {
-    const NOISE_KEYWORDS: [&str; 18] = [
+    const NOISE_KEYWORDS: [&str; 27] = [
         "music",
         "bgm",
         "applause",
+        "laughter",
+        "laugh",
+        "lol",
+        "lmao",
+        "www",
         "\u{5B57}\u{5E55}", // 字幕
         "\u{97F3}\u{697D}", // 音楽
         "\u{97F3}\u{4E50}", // 音乐
@@ -1106,6 +1111,10 @@ fn count_noise_keyword_hits(text: &str) -> usize {
         "\u{73AF}\u{5883}\u{97F3}", // 环境音
         "\u{638C}\u{58F0}", // 掌声
         "\u{7B11}\u{58F0}", // 笑声
+        "\u{7B11}\u{3044}", // 笑い
+        "\u{7B11}",         // 笑
+        "\u{54C8}\u{54C8}", // 哈哈
+        "\u{5475}\u{5475}", // 呵呵
         "\u{52B9}\u{679C}\u{97F3}", // 効果音
         "\u{62CD}\u{624B}", // 拍手
         "\u{266A}",         // ♪
@@ -1141,10 +1150,17 @@ fn is_noise_punct(ch: char) -> bool {
 }
 
 fn is_noise_label_only(text: &str) -> bool {
-    const NOISE_LABELS: [&str; 16] = [
+    const NOISE_LABELS: [&str; 28] = [
         "music",
         "bgm",
         "applause",
+        "laugh",
+        "laughter",
+        "lol",
+        "lmao",
+        "www",
+        "ww",
+        "w",
         "noise",
         "static",
         "\u{97F3}\u{697D}", // 音楽
@@ -1154,6 +1170,11 @@ fn is_noise_label_only(text: &str) -> bool {
         "\u{73AF}\u{5883}\u{97F3}", // 环境音
         "\u{52B9}\u{679C}\u{97F3}", // 効果音
         "\u{97F3}\u{6548}", // 音效
+        "\u{7B11}",         // 笑
+        "\u{7B11}\u{3044}", // 笑い
+        "\u{7B11}\u{58F0}", // 笑声
+        "\u{54C8}\u{54C8}", // 哈哈
+        "\u{5475}\u{5475}", // 呵呵
         "\u{4F34}\u{594F}", // 伴奏
         "\u{914D}\u{4E50}", // 配乐
         "\u{914D}\u{6A02}", // 配樂
