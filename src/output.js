@@ -948,10 +948,14 @@ transcriptionToggleBtn?.addEventListener("click", async () => {
 
 transcriptionClearBtn?.addEventListener("click", async () => {
   try {
-    await invoke("clear_transcription_queue");
+    await invoke("clear_segments");
   } catch (error) {
-    console.warn("clear_transcription_queue error", error);
+    console.warn("clear_segments error", error);
   }
+  transcriptionRunning = false;
+  translationRunning = false;
+  translationStartOrderFloor = Number.NEGATIVE_INFINITY;
+  updateRegionControlUi();
   clearSegmentsUi();
 });
 
@@ -966,9 +970,9 @@ translationToggleBtn?.addEventListener("click", async () => {
 
 translationClearBtn?.addEventListener("click", async () => {
   try {
-    await invoke("clear_translation_queue");
+    await invoke("clear_segment_translations");
   } catch (error) {
-    console.warn("clear_translation_queue error", error);
+    console.warn("clear_segment_translations error", error);
   }
   clearQueuedRowTranslations();
   rowTranslationRequested.clear();
@@ -1009,6 +1013,10 @@ const handleBackendEvent = (type, payload) => {
     return;
   }
   if (type === "segment_list_cleared") {
+    transcriptionRunning = false;
+    translationRunning = false;
+    translationStartOrderFloor = Number.NEGATIVE_INFINITY;
+    updateRegionControlUi();
     clearSegmentsUi();
     return;
   }

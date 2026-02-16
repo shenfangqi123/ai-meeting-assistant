@@ -650,6 +650,8 @@ impl CaptureManager {
 
     pub fn clear(&self, app: AppHandle) -> Result<(), String> {
         self.stop(&app, true)?;
+        self.transcription_enabled.store(false, Ordering::SeqCst);
+        self.drop_segment_translation.store(true, Ordering::SeqCst);
         let segments_dir = ensure_segments_dir(&app)?;
         if let Ok(entries) = fs::read_dir(&segments_dir) {
             for entry in entries.flatten() {
@@ -675,6 +677,24 @@ impl CaptureManager {
         }
         let _ = app.emit("segment_list_cleared", true);
         let _ = app.emit("live_translation_cleared", true);
+        Ok(())
+    }
+
+    pub fn clear_segment_translations(&self, app: AppHandle) -> Result<(), String> {
+        self.clear_translation_queue(&app);
+        let segments_dir = ensure_segments_dir(&app)?;
+        let mut snapshot: Option<Vec<SegmentInfo>> = None;
+        if let Ok(mut guard) = self.segments.lock() {
+            for segment in guard.iter_mut() {
+                segment.translation = None;
+                segment.translation_at = None;
+                segment.translation_ms = None;
+            }
+            snapshot = Some(guard.clone());
+        }
+        if let Some(snapshot) = snapshot {
+            let _ = save_index(&segments_dir, &snapshot);
+        }
         Ok(())
     }
 
