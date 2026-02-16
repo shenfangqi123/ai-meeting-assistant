@@ -894,6 +894,10 @@ fn finalize_segment_with_vad(
 ) {
     let path = dir.join(&info.name);
     if min_transcribe_ms > 0 && info.duration_ms < min_transcribe_ms {
+        eprintln!(
+            "[segment] filtered name={} reason=too_short duration_ms={} min_transcribe_ms={}",
+            info.name, info.duration_ms, min_transcribe_ms
+        );
         let _ = fs::remove_file(&path);
         return;
     }
@@ -935,6 +939,10 @@ fn finalize_segment(
 
     if min_transcribe_ms > 0 && info.duration_ms < min_transcribe_ms {
         let path = dir.join(&info.name);
+        eprintln!(
+            "[segment] filtered name={} reason=too_short duration_ms={} min_transcribe_ms={}",
+            info.name, info.duration_ms, min_transcribe_ms
+        );
         let _ = fs::remove_file(&path);
         return;
     }
@@ -1224,14 +1232,15 @@ fn should_drop_non_speech_transcript(text: &str, asr_config: &AsrConfig) -> bool
 fn sanitize_transcript_text(raw: String, asr_config: &AsrConfig, name: &str) -> String {
     let trimmed = raw.trim().to_string();
     if trimmed.is_empty() {
+        eprintln!("[transcribe] filtered name={name} reason=empty_transcript");
         return String::new();
     }
     if is_known_whisper_hallucination(&trimmed) {
-        eprintln!("[transcribe] drop likely whisper hallucination name={name}");
+        eprintln!("[transcribe] filtered name={name} reason=whisper_hallucination");
         return String::new();
     }
     if should_drop_non_speech_transcript(&trimmed, asr_config) {
-        eprintln!("[transcribe] drop likely non-speech transcript name={name}");
+        eprintln!("[transcribe] filtered name={name} reason=non_speech_transcript");
         return String::new();
     }
     trimmed
@@ -1263,8 +1272,6 @@ fn run_transcription_worker(
         let prompt_hint = meta
             .as_ref()
             .and_then(|segment_meta| context_state.prompt_for(segment_meta));
-        let thread_id = std::thread::current().id();
-        println!("[transcribe] thread={thread_id:?} name={name}");
         let started_at = Instant::now();
         let transcript = match tauri::async_runtime::block_on(async {
             transcribe_file(&app, &path, prompt_hint.as_deref()).await
@@ -1699,6 +1706,10 @@ fn should_keep_segment(path: &Path, segment_ms: u64, asr_config: &AsrConfig) -> 
     if asr_config.use_whisper_vad != Some(true) {
         return Ok(true);
     }
+    let segment_name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or("<unknown>");
 
     let vad_exe = asr_config
         .whisper_cpp_vad_path
@@ -1733,6 +1744,7 @@ fn should_keep_segment(path: &Path, segment_ms: u64, asr_config: &AsrConfig) -> 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let has_any_speech = !stdout.trim().is_empty();
     if !has_any_speech {
+        eprintln!("[vad] filtered name={segment_name} reason=no_speech_detected");
         return Ok(false);
     }
 
@@ -1746,8 +1758,8 @@ fn should_keep_segment(path: &Path, segment_ms: u64, asr_config: &AsrConfig) -> 
         let ratio = speech_ms as f32 / total_ms as f32;
         if speech_ms < min_speech_ms || ratio < min_speech_ratio {
             eprintln!(
-                "drop by VAD threshold speech_ms={} segment_ms={} ratio={:.3} min_ms={} min_ratio={:.3}",
-                speech_ms, total_ms, ratio, min_speech_ms, min_speech_ratio
+                "[vad] filtered name={} reason=below_threshold speech_ms={} segment_ms={} ratio={:.3} min_ms={} min_ratio={:.3}",
+                segment_name, speech_ms, total_ms, ratio, min_speech_ms, min_speech_ratio
             );
             return Ok(false);
         }
