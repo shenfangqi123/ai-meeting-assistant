@@ -921,7 +921,6 @@ const setTranscriptionRunningState = async (enabled) => {
 
 const setTranslationRunningState = async (enabled) => {
   if (enabled) {
-    await loadSegments();
     translationStartOrderFloor = latestTranscribedOrder();
   } else {
     translationStartOrderFloor = Number.NEGATIVE_INFINITY;
