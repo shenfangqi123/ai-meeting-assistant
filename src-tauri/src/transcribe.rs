@@ -352,9 +352,17 @@ fn transcribe_with_whisper_pipe_blocking(
     let stdout_reader = thread::spawn(move || read_pipe_text(stdout));
     let stderr_reader = thread::spawn(move || read_pipe_text(stderr));
 
-    stdin
-        .write_all(&audio_bytes)
-        .map_err(|err| format!("failed to write audio to whisper pipe stdin: {err}"))?;
+    if let Err(err) = stdin.write_all(&audio_bytes) {
+        let _ = child.kill();
+        let _ = child.wait();
+        let stdout_text = join_reader(stdout_reader, "stdout")?;
+        let stderr_text = join_reader(stderr_reader, "stderr")?;
+        return Err(format!(
+            "failed to write audio to whisper pipe stdin: {err} (stderr: {}, stdout: {})",
+            compact_error_text(&stderr_text),
+            compact_error_text(&stdout_text),
+        ));
+    }
     drop(stdin);
 
     let started = Instant::now();
