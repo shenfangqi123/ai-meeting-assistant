@@ -1,5 +1,7 @@
 ﻿import { invoke } from "@tauri-apps/api/core";
 
+import { listen } from "@tauri-apps/api/event";
+
 const meetingUrlDefault = "https://zoom.us/signin";
 const SELECTED_PROJECT_STORAGE_KEY = "rag_selected_project_id";
 const TOP_PANE_HEIGHT_STORAGE_KEY = "main_top_pane_height";
@@ -153,6 +155,31 @@ const notifyOutputFrame = (type, payload = null) => {
   const target = outputFrame?.contentWindow;
   if (!target) return;
   target.postMessage({ type, payload }, window.location.origin);
+};
+
+const BRIDGED_OUTPUT_EVENTS = [
+  "segment_created",
+  "segment_transcribed",
+  "segment_translated",
+  "segment_speakered",
+  "segment_list_cleared",
+  "segment_translation_canceled",
+  "window_transcribed",
+  "live_translation_start",
+  "live_translation_chunk",
+  "live_translation_done",
+  "live_translation_error",
+  "live_translation_cleared",
+];
+
+const setupOutputEventBridge = () => {
+  for (const eventName of BRIDGED_OUTPUT_EVENTS) {
+    void listen(eventName, (event) => {
+      notifyOutputFrame(eventName, event?.payload ?? null);
+    }).catch((error) => {
+      logError(`output event bridge error(${eventName}): ${error}`);
+    });
+  }
 };
 
 const updateAsrUi = () => {
@@ -1081,6 +1108,7 @@ if (savedProjectId) {
 updateCurrentProjectLabel();
 topPaneHeight = loadTopPaneHeight();
 void setTopPaneHeight(topPaneHeight, false);
+setupOutputEventBridge();
 loadAsrSettings();
 loadTranslateProvider();
 void loadProjects();

@@ -805,90 +805,110 @@ autoScrollToggle?.addEventListener("change", () => {
   }
 });
 
-listen("segment_created", (event) => {
-  if (event?.payload) {
-    addSegment(event.payload, { scrollToBottom: true });
-  }
-});
-
-listen("segment_transcribed", (event) => {
-  if (!event?.payload) return;
-
-  updateSegment(event.payload);
-  if (translateEnabled) {
-    const entry = segmentMap.get(event.payload.name);
-    if (entry) {
-      queueRowTranslation(entry);
+const handleBackendEvent = (type, payload) => {
+  if (type === "segment_created") {
+    if (payload) {
+      addSegment(payload, { scrollToBottom: true });
     }
+    return;
   }
-});
-
-listen("segment_translated", (event) => {
-  if (event?.payload) {
-    rowTranslationRequested.delete(event.payload.name);
-    updateSegment(event.payload);
+  if (type === "segment_transcribed") {
+    if (!payload) return;
+    updateSegment(payload);
+    if (translateEnabled) {
+      const entry = segmentMap.get(payload.name);
+      if (entry) {
+        queueRowTranslation(entry);
+      }
+    }
+    return;
   }
-});
-
-listen("segment_speakered", (event) => {
-  if (event?.payload) {
-    updateSegment(event.payload);
+  if (type === "segment_translated") {
+    if (payload) {
+      rowTranslationRequested.delete(payload.name);
+      updateSegment(payload);
+    }
+    return;
   }
-});
-
-listen("segment_list_cleared", () => {
-  clearSegmentsUi();
-});
-
-listen("segment_translation_canceled", () => {
-  clearQueuedRowTranslations();
-  rowTranslationRequested.clear();
-});
-
-listen("window_transcribed", (event) => {
-  if (event?.payload) {
-    applyWindowTranscript(event.payload);
+  if (type === "segment_speakered") {
+    if (payload) {
+      updateSegment(payload);
+    }
+    return;
   }
-});
-
-listen("live_translation_start", (event) => {
-  if (event?.payload) {
-    handleLiveTranslationStart(event.payload);
-  }
-});
-
-listen("live_translation_chunk", (event) => {
-  if (event?.payload) {
-    handleLiveTranslationChunk(event.payload);
-  }
-});
-
-listen("live_translation_done", (event) => {
-  if (event?.payload) {
-    handleLiveTranslationDone(event.payload);
-  }
-});
-
-listen("live_translation_error", (event) => {
-  if (event?.payload) {
-    handleLiveTranslationError(event.payload);
-  }
-});
-
-listen("live_translation_cleared", () => {
-  resetLiveState();
-});
-
-window.addEventListener("message", (event) => {
-  if (event.origin !== window.location.origin) return;
-  const type = event?.data?.type;
   if (type === "segment_list_cleared") {
     clearSegmentsUi();
+    return;
+  }
+  if (type === "segment_translation_canceled") {
+    clearQueuedRowTranslations();
+    rowTranslationRequested.clear();
+    return;
+  }
+  if (type === "window_transcribed") {
+    if (payload) {
+      applyWindowTranscript(payload);
+    }
+    return;
+  }
+  if (type === "live_translation_start") {
+    if (payload) {
+      handleLiveTranslationStart(payload);
+    }
+    return;
+  }
+  if (type === "live_translation_chunk") {
+    if (payload) {
+      handleLiveTranslationChunk(payload);
+    }
+    return;
+  }
+  if (type === "live_translation_done") {
+    if (payload) {
+      handleLiveTranslationDone(payload);
+    }
+    return;
+  }
+  if (type === "live_translation_error") {
+    if (payload) {
+      handleLiveTranslationError(payload);
+    }
     return;
   }
   if (type === "live_translation_cleared") {
     resetLiveState();
   }
+};
+
+listen("segment_created", (event) => handleBackendEvent("segment_created", event?.payload));
+listen("segment_transcribed", (event) => handleBackendEvent("segment_transcribed", event?.payload));
+listen("segment_translated", (event) => handleBackendEvent("segment_translated", event?.payload));
+listen("segment_speakered", (event) => handleBackendEvent("segment_speakered", event?.payload));
+listen("segment_list_cleared", (event) => handleBackendEvent("segment_list_cleared", event?.payload));
+listen("segment_translation_canceled", (event) =>
+  handleBackendEvent("segment_translation_canceled", event?.payload),
+);
+listen("window_transcribed", (event) => handleBackendEvent("window_transcribed", event?.payload));
+listen("live_translation_start", (event) =>
+  handleBackendEvent("live_translation_start", event?.payload),
+);
+listen("live_translation_chunk", (event) =>
+  handleBackendEvent("live_translation_chunk", event?.payload),
+);
+listen("live_translation_done", (event) =>
+  handleBackendEvent("live_translation_done", event?.payload),
+);
+listen("live_translation_error", (event) =>
+  handleBackendEvent("live_translation_error", event?.payload),
+);
+listen("live_translation_cleared", (event) =>
+  handleBackendEvent("live_translation_cleared", event?.payload),
+);
+
+window.addEventListener("message", (event) => {
+  if (event.origin !== window.location.origin) return;
+  const type = event?.data?.type;
+  handleBackendEvent(type, event?.data?.payload);
 });
 
 mainSplitRatio = loadMainSplitRatio();
