@@ -62,6 +62,8 @@ const isFilteredTranscript = (value) => value !== null && value !== undefined &&
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+const isCaptureAlreadyRunningError = (error) =>
+  normalizeText(String(error)).toLowerCase().includes("already running");
 
 const getBoardMetrics = () => {
   if (!boardEl) {
@@ -887,7 +889,19 @@ autoScrollToggle?.addEventListener("change", () => {
 });
 
 const setTranscriptionRunningState = async (enabled) => {
+  if (enabled) {
+    try {
+      await invoke("start_loopback_capture");
+    } catch (error) {
+      if (!isCaptureAlreadyRunningError(error)) {
+        throw error;
+      }
+    }
+  }
   await invoke("set_transcription_enabled", { enabled });
+  if (!enabled) {
+    await invoke("stop_loopback_capture", { dropTranslations: false });
+  }
   transcriptionRunning = !!enabled;
   updateRegionControlUi();
 };

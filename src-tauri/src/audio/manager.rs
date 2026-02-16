@@ -544,7 +544,7 @@ impl CaptureManager {
         Ok(())
     }
 
-    pub fn stop(&self, app: &AppHandle, _drop_translations: bool) -> Result<(), String> {
+    pub fn stop(&self, app: &AppHandle, drop_translations: bool) -> Result<(), String> {
         let mut guard = self
             .handle
             .lock()
@@ -560,7 +560,11 @@ impl CaptureManager {
             }
         }
         drop(guard);
-        self.clear_task_queues(app);
+        self.clear_transcription_queue();
+        if drop_translations {
+            self.clear_translation_queue(app);
+            self.drop_segment_translation.store(true, Ordering::SeqCst);
+        }
         Ok(())
     }
 

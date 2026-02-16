@@ -12,9 +12,6 @@ const asrProviderToggle = document.getElementById("asrProviderToggle");
 const translateProviderToggle = document.getElementById("translateProviderToggle");
 const asrFallbackToggle = document.getElementById("asrFallbackToggle");
 const asrLanguageSelect = document.getElementById("asrLanguage");
-const asrStart = document.getElementById("asrStart");
-const captureStatus = document.getElementById("captureStatus");
-const clearSegmentsBtn = document.getElementById("clearSegments");
 const projectQuickSelect = document.getElementById("projectQuickSelect");
 const ragSearchBtn = document.getElementById("ragSearchBtn");
 
@@ -41,9 +38,6 @@ const projectProgressLogs = document.getElementById("projectProgressLogs");
 const projectProgressSkippedWrap = document.getElementById("projectProgressSkippedWrap");
 const projectProgressSkippedList = document.getElementById("projectProgressSkippedList");
 const projectProgressDoneBtn = document.getElementById("projectProgressDoneBtn");
-const stopCaptureModal = document.getElementById("stopCaptureModal");
-const stopCaptureTranscribeOnlyBtn = document.getElementById("stopCaptureTranscribeOnly");
-const stopCaptureAllBtn = document.getElementById("stopCaptureAll");
 
 const ragSearchModal = document.getElementById("ragSearchModal");
 const ragSearchPrompt = document.getElementById("ragSearchPrompt");
@@ -54,7 +48,6 @@ const ragSearchProjectInfo = document.getElementById("ragSearchProjectInfo");
 const ragSearchCloseBtn = document.getElementById("ragSearchCloseBtn");
 const outputFrame = document.getElementById("outputFrame");
 
-let isCapturing = false;
 let currentAsrProvider = "whisperserver";
 let currentTranslateProvider = "ollama";
 const TRANSLATE_PROVIDER_ORDER = ["ollama", "openai", "local-gpt"];
@@ -74,7 +67,6 @@ let progressInterval = null;
 let progressValue = 0;
 let ragSearchModalOpen = false;
 let ragSearchRunning = false;
-let stopCaptureChoiceResolver = null;
 
 const normalizeUrl = (raw) => {
   if (!raw) return "";
@@ -151,16 +143,6 @@ const updateTranslateProviderUi = () => {
     return;
   }
   translateProviderToggle.textContent = "Ollama";
-};
-
-const updateCaptureUi = (active) => {
-  isCapturing = active;
-  if (asrStart) {
-    asrStart.textContent = active ? "Stop Capture" : "Start Capture";
-  }
-  if (captureStatus) {
-    captureStatus.textContent = active ? "Capturing..." : "Idle";
-  }
 };
 
 const updateCurrentProjectLabel = () => {
@@ -787,46 +769,6 @@ const loadTranslateProvider = async () => {
   }
 };
 
-const closeStopCaptureModal = () => {
-  if (!stopCaptureModal) return;
-  stopCaptureModal.classList.add("hidden");
-  stopCaptureModal.setAttribute("aria-hidden", "true");
-};
-
-const resolveStopCaptureChoice = (choice) => {
-  const resolver = stopCaptureChoiceResolver;
-  if (!resolver) return;
-  stopCaptureChoiceResolver = null;
-  closeStopCaptureModal();
-  resolver(choice);
-};
-
-const chooseStopCaptureMode = () =>
-  new Promise((resolve) => {
-    if (!stopCaptureModal || !stopCaptureTranscribeOnlyBtn || !stopCaptureAllBtn) {
-      resolve("stop_all");
-      return;
-    }
-    stopCaptureChoiceResolver = resolve;
-    stopCaptureModal.classList.remove("hidden");
-    stopCaptureModal.setAttribute("aria-hidden", "false");
-    stopCaptureAllBtn.focus();
-  });
-
-const startCapture = async () => {
-  if (isCapturing) return;
-  await invoke("start_loopback_capture");
-  updateCaptureUi(true);
-};
-
-const stopCapture = async () => {
-  if (!isCapturing) return;
-  const mode = await chooseStopCaptureMode();
-  const dropTranslations = mode === "stop_all";
-  await invoke("stop_loopback_capture", { dropTranslations });
-  updateCaptureUi(false);
-};
-
 loadBtn?.addEventListener("click", async () => {
   const url = normalizeUrl(urlInput?.value.trim());
   if (!url) return;
@@ -840,35 +782,6 @@ loadBtn?.addEventListener("click", async () => {
 urlInput?.addEventListener("keydown", (event) => {
   if (event.key === "Enter") {
     loadBtn?.click();
-  }
-});
-stopCaptureTranscribeOnlyBtn?.addEventListener("click", () => {
-  resolveStopCaptureChoice("transcribe_only");
-});
-stopCaptureAllBtn?.addEventListener("click", () => {
-  resolveStopCaptureChoice("stop_all");
-});
-
-asrStart?.addEventListener("click", async () => {
-  try {
-    if (isCapturing) {
-      await stopCapture();
-    } else {
-      await startCapture();
-    }
-  } catch (error) {
-    logError(`capture error: ${error}`);
-  }
-});
-
-clearSegmentsBtn?.addEventListener("click", async () => {
-  try {
-    await invoke("clear_segments");
-    notifyOutputFrame("segment_list_cleared", true);
-    notifyOutputFrame("live_translation_cleared", true);
-    updateCaptureUi(false);
-  } catch (error) {
-    logError(`clear error: ${error}`);
   }
 });
 

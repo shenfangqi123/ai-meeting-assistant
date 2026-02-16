@@ -42,9 +42,6 @@
             </div>
             <div class="section">
               <div class="row">
-                <button id="asrStart" class="primary">开始采集</button>
-                <span id="captureStatus" class="status">未采集</span>
-                <button id="clearSegments">清空录音</button>
                 <label class="field compact">
                   <span>项目</span>
                   <select id="projectQuickSelect">
@@ -142,16 +139,6 @@
         <div id="ragSearchOutput" class="rag-search-output"></div>
         <div class="row">
           <button id="ragSearchCloseBtn" class="primary" type="button">确定</button>
-        </div>
-      </div>
-    </div>
-    <div id="stopCaptureModal" class="stop-capture-backdrop hidden" aria-hidden="true">
-      <div class="stop-capture-modal" role="dialog" aria-modal="true" aria-labelledby="stopCaptureTitle">
-        <h3 id="stopCaptureTitle">停止采集</h3>
-        <p class="stop-capture-text">请选择停止方式</p>
-        <div class="row stop-capture-actions">
-          <button id="stopCaptureTranscribeOnly" type="button">仅停转写</button>
-          <button id="stopCaptureAll" class="primary" type="button">转写+翻译都停</button>
         </div>
       </div>
     </div>
