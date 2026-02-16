@@ -1047,6 +1047,23 @@ fn take_tail_chars(text: &str, max_chars: usize) -> String {
     text.chars().skip(total - max_chars).collect()
 }
 
+fn is_known_whisper_hallucination(text: &str) -> bool {
+    let compact = text
+        .trim()
+        .trim_matches(|c| matches!(c, '(' | ')' | '（' | '）' | '[' | ']' | '【' | '】'))
+        .chars()
+        .filter(|c| !c.is_whitespace())
+        .collect::<String>();
+    if compact.is_empty() {
+        return false;
+    }
+
+    matches!(
+        compact.as_str(),
+        "字幕製作:貝爾" | "字幕製作：貝爾" | "字幕制作:贝尔" | "字幕制作：贝尔"
+    )
+}
+
 fn run_transcription_worker(
     app: AppHandle,
     dir: PathBuf,
@@ -1081,6 +1098,14 @@ fn run_transcription_worker(
                 Some(String::new())
             }
         };
+        let transcript = transcript.map(|text| {
+            if is_known_whisper_hallucination(&text) {
+                eprintln!("[transcribe] drop likely whisper hallucination name={name}");
+                String::new()
+            } else {
+                text
+            }
+        });
         context_state.observe_result(meta.as_ref(), transcript.as_deref());
         let elapsed_ms = started_at.elapsed().as_millis() as u64;
         apply_transcript(&app, &dir, &segments, &name, transcript, elapsed_ms);
