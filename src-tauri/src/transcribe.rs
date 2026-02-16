@@ -1,5 +1,6 @@
 use crate::app_config::{load_config, AsrConfig, OpenAiConfig};
 use crate::asr::AsrState;
+use crate::transcribe_backend::{resolve_whisper_transcribe_backend, WhisperTranscribeBackend};
 use crate::whisper_server::WhisperServerManager;
 use reqwest::multipart::{Form, Part};
 use std::path::Path;
@@ -34,7 +35,7 @@ pub async fn transcribe_file(
     match provider.as_str() {
         "whisperserver" => {
             let server_result =
-                transcribe_with_whisper_server(app, path, &asr_config, whisper_prompt_hint).await;
+                transcribe_with_whisper_backend(app, path, &asr_config, whisper_prompt_hint).await;
             match server_result {
                 Ok(text) => return Ok(text),
                 Err(err) => {
@@ -57,6 +58,22 @@ pub async fn transcribe_file(
     }
 
     transcribe_with_openai(path, &openai).await
+}
+
+pub async fn transcribe_with_whisper_backend(
+    app: &AppHandle,
+    path: &Path,
+    config: &AsrConfig,
+    prompt_hint: Option<&str>,
+) -> Result<String, String> {
+    match resolve_whisper_transcribe_backend(config) {
+        WhisperTranscribeBackend::Server => {
+            transcribe_with_whisper_server(app, path, config, prompt_hint).await
+        }
+        WhisperTranscribeBackend::Pipe => {
+            transcribe_with_whisper_pipe(app, path, config, prompt_hint).await
+        }
+    }
 }
 
 pub async fn transcribe_with_whisper_server(
@@ -142,6 +159,18 @@ pub async fn transcribe_with_whisper_server(
         return Err("whisper-server returned empty text".to_string());
     }
     Ok(trimmed.to_string())
+}
+
+async fn transcribe_with_whisper_pipe(
+    _app: &AppHandle,
+    _path: &Path,
+    config: &AsrConfig,
+    _prompt_hint: Option<&str>,
+) -> Result<String, String> {
+    let backend = resolve_whisper_transcribe_backend(config).as_label();
+    Err(format!(
+        "whisper backend `{backend}` is configured but pipe IPC is not implemented yet"
+    ))
 }
 
 async fn transcribe_with_openai(path: &Path, openai: &OpenAiConfig) -> Result<String, String> {

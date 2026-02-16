@@ -83,6 +83,7 @@ pub struct SpeakerConfig {
 #[serde(rename_all = "camelCase")]
 pub struct AsrConfig {
     pub provider: Option<String>,
+    pub whisper_backend: Option<String>,
     pub whisper_cpp_model_path: Option<String>,
     pub whisper_server_path: Option<String>,
     pub whisper_server_gpu_path: Option<String>,
@@ -114,6 +115,7 @@ impl Default for AsrConfig {
     fn default() -> Self {
         Self {
             provider: Some("whisperserver".to_string()),
+            whisper_backend: Some("server".to_string()),
             whisper_cpp_model_path: Some("resources/models/ggml-base.bin".to_string()),
             whisper_server_path: None,
             whisper_server_gpu_path: None,

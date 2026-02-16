@@ -4,7 +4,7 @@ use crate::audio::config::{ensure_config_file, load_config};
 use crate::audio::speaker::SpeakerDiarizer;
 use crate::audio::wasapi::LoopbackCapture;
 use crate::audio::writer::SegmentWriter;
-use crate::transcribe::{transcribe_file, transcribe_with_whisper_server};
+use crate::transcribe::{transcribe_file, transcribe_with_whisper_backend};
 use crate::translate::{
     translate_text_batch_with_options, BatchTranslationItem, BatchTranslationOptions,
     TranslateSource,
@@ -1769,7 +1769,7 @@ fn run_window_worker(
             }
         }
         let transcript = match tauri::async_runtime::block_on(async {
-            transcribe_with_whisper_server(&app, &path, &asr_config, None).await
+            transcribe_with_whisper_backend(&app, &path, &asr_config, None).await
         }) {
             Ok(text) => text,
             Err(err) => {

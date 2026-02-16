@@ -5,6 +5,7 @@ mod asr;
 mod audio;
 mod rag;
 mod transcribe;
+mod transcribe_backend;
 mod translate;
 mod whisper_server;
 
@@ -23,6 +24,7 @@ use std::time::{Duration, Instant};
 use tauri::{
     AppHandle, Emitter, Manager, State, WebviewUrl, WebviewWindowBuilder,
 };
+use transcribe_backend::should_start_whisper_server;
 use whisper_server::WhisperServerManager;
 
 const INTRO_URL: &str = "intro.html";
@@ -1250,18 +1252,6 @@ fn main() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
-}
-
-fn should_start_whisper_server(config: &app_config::AsrConfig) -> bool {
-    let provider = config
-        .provider
-        .clone()
-        .unwrap_or_else(|| "whisperserver".to_string())
-        .to_lowercase();
-    matches!(
-        provider.as_str(),
-        "whisperserver" | "whisper-server" | "whisper_server" | "server"
-    )
 }
 
 fn normalize_translate_provider(provider: &str) -> String {
