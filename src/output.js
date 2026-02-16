@@ -879,6 +879,18 @@ listen("live_translation_cleared", () => {
   resetLiveState();
 });
 
+window.addEventListener("message", (event) => {
+  if (event.origin !== window.location.origin) return;
+  const type = event?.data?.type;
+  if (type === "segment_list_cleared") {
+    clearSegmentsUi();
+    return;
+  }
+  if (type === "live_translation_cleared") {
+    resetLiveState();
+  }
+});
+
 mainSplitRatio = loadMainSplitRatio();
 questionSplitRatio = loadQuestionSplitRatio();
 autoScrollEnabled = loadAutoScrollEnabled();

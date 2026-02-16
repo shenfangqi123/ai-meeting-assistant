@@ -57,6 +57,7 @@ const ragAllowOutOfContext = document.getElementById("ragAllowOutOfContext");
 const ragSearchOutput = document.getElementById("ragSearchOutput");
 const ragSearchProjectInfo = document.getElementById("ragSearchProjectInfo");
 const ragSearchCloseBtn = document.getElementById("ragSearchCloseBtn");
+const outputFrame = document.getElementById("outputFrame");
 
 let resizeState = null;
 let pendingResize = null;
@@ -146,6 +147,12 @@ const setTopPaneHeight = async (height, persist = true) => {
   if (persist) {
     saveTopPaneHeight(clamped);
   }
+};
+
+const notifyOutputFrame = (type, payload = null) => {
+  const target = outputFrame?.contentWindow;
+  if (!target) return;
+  target.postMessage({ type, payload }, window.location.origin);
 };
 
 const updateAsrUi = () => {
@@ -920,6 +927,8 @@ asrStart?.addEventListener("click", async () => {
 clearSegmentsBtn?.addEventListener("click", async () => {
   try {
     await invoke("clear_segments");
+    notifyOutputFrame("segment_list_cleared", true);
+    notifyOutputFrame("live_translation_cleared", true);
     updateCaptureUi(false);
   } catch (error) {
     logError(`clear error: ${error}`);
