@@ -1070,6 +1070,14 @@ async fn clear_segment_translations(
 }
 
 #[tauri::command]
+async fn clear_segment_transcripts(
+    app: AppHandle,
+    state: State<'_, CaptureManager>,
+) -> Result<(), String> {
+    state.clear_segment_transcripts(app)
+}
+
+#[tauri::command]
 async fn translate_segment(
     app: AppHandle,
     state: State<'_, CaptureManager>,
@@ -1220,6 +1228,7 @@ fn main() {
             read_segment_bytes,
             clear_segments,
             clear_segment_translations,
+            clear_segment_transcripts,
             translate_segment,
             get_asr_settings,
             set_asr_provider,

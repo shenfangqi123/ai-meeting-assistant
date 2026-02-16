@@ -49,6 +49,7 @@ pub struct SegmentInfo {
     pub speaker_changed: Option<bool>,
     pub speaker_similarity: Option<f32>,
     pub speaker_switches_ms: Option<Vec<u64>>,
+    pub transcript_cleared: Option<bool>,
 }
 
 #[derive(Debug, Clone)]
@@ -698,6 +699,26 @@ impl CaptureManager {
         Ok(())
     }
 
+    pub fn clear_segment_transcripts(&self, app: AppHandle) -> Result<(), String> {
+        self.clear_transcription_queue();
+        let segments_dir = ensure_segments_dir(&app)?;
+        let mut snapshot: Option<Vec<SegmentInfo>> = None;
+        if let Ok(mut guard) = self.segments.lock() {
+            for segment in guard.iter_mut() {
+                segment.transcript = None;
+                segment.transcript_at = None;
+                segment.transcript_ms = None;
+                segment.transcript_cleared = Some(true);
+            }
+            snapshot = Some(guard.clone());
+        }
+        if let Some(snapshot) = snapshot {
+            let _ = save_index(&segments_dir, &snapshot);
+        }
+        let _ = app.emit("segment_transcripts_cleared", true);
+        Ok(())
+    }
+
     pub fn translate_segment(
         &self,
         app: AppHandle,
@@ -1095,6 +1116,7 @@ fn apply_transcript(
             segment.transcript = transcript;
             segment.transcript_at = Some(Local::now().to_rfc3339());
             segment.transcript_ms = Some(elapsed_ms);
+            segment.transcript_cleared = Some(false);
             updated = Some(segment.clone());
             snapshot = Some(guard.clone());
         }
@@ -1355,7 +1377,8 @@ fn run_transcription_worker(
         .and_then(|cfg| cfg.asr)
         .unwrap_or_default();
     while let Ok(task) = rx.recv() {
-        if task.generation != transcription_generation.load(Ordering::SeqCst) {
+        let task_generation = task.generation;
+        if task_generation != transcription_generation.load(Ordering::SeqCst) {
             continue;
         }
         let name = task.name;
@@ -1375,6 +1398,9 @@ fn run_transcription_worker(
             }
         };
         let transcript = transcript.map(|text| sanitize_transcript_text(text, &asr_filter_config, &name));
+        if task_generation != transcription_generation.load(Ordering::SeqCst) {
+            continue;
+        }
         context_state.observe_result(meta.as_ref(), transcript.as_deref());
         let elapsed_ms = started_at.elapsed().as_millis() as u64;
         apply_transcript(&app, &dir, &segments, &name, transcript, elapsed_ms);

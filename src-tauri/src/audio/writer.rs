@@ -80,6 +80,7 @@ impl SegmentWriter {
             speaker_changed: None,
             speaker_similarity: None,
             speaker_switches_ms: None,
+            transcript_cleared: Some(false),
         })
     }
 }

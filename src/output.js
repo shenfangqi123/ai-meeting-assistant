@@ -60,6 +60,7 @@ const normalizeText = (value) => {
 
 const hasTranslationText = (value) => normalizeText(value).length > 0;
 const isFilteredTranscript = (value) => value !== null && value !== undefined && !normalizeText(value);
+const isTranscriptCleared = (info) => info?.transcript_cleared === true;
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -351,6 +352,11 @@ const getTranslateProvider = async () => {
 const renderRowTranscript = (entry) => {
   const raw = entry.info.transcript;
   if (raw === null || raw === undefined) {
+    if (isTranscriptCleared(entry.info) || hasTranslationText(entry.info.translation)) {
+      entry.transcriptEl.textContent = "";
+      entry.transcriptEl.dataset.state = "ready";
+      return;
+    }
     entry.transcriptEl.textContent = "Transcribing...";
     entry.transcriptEl.dataset.state = "pending";
     return;
@@ -420,6 +426,29 @@ const clearTranslationTextsUi = () => {
   liveStreamId = "";
   liveStreamText = "";
   setLiveFinal("", "pending");
+};
+
+const clearTranscriptionTextsUi = () => {
+  const names = Array.from(segmentMap.keys());
+  for (const name of names) {
+    const entry = segmentMap.get(name);
+    if (!entry) continue;
+    entry.info.transcript = null;
+    entry.info.transcript_at = null;
+    entry.info.transcript_ms = null;
+    entry.info.transcript_cleared = true;
+    if (!hasTranslationText(entry.info.translation)) {
+      removeSegmentRow(name);
+      continue;
+    }
+    renderRowTranscript(entry);
+  }
+  setLiveSpeaker(null, true);
+  if (liveMetaEl) {
+    liveMetaEl.textContent = "Idle";
+  }
+  setLivePartial("");
+  updateStatus();
 };
 
 const drainRowTranslationQueue = async () => {
@@ -641,7 +670,10 @@ const addSegment = (info, { scrollToBottom = true } = {}) => {
     const existing = segmentMap.get(info.name);
     const previousOrder = existing.info.order;
     mergeInfo(existing, info);
-    if (isFilteredTranscript(existing.info.transcript)) {
+    if (
+      (isFilteredTranscript(existing.info.transcript) || isTranscriptCleared(existing.info)) &&
+      !hasTranslationText(existing.info.translation)
+    ) {
       removeSegmentRow(info.name);
       return;
     }
@@ -652,7 +684,7 @@ const addSegment = (info, { scrollToBottom = true } = {}) => {
     return;
   }
 
-  if (isFilteredTranscript(info.transcript)) {
+  if ((isFilteredTranscript(info.transcript) || isTranscriptCleared(info)) && !hasTranslationText(info.translation)) {
     return;
   }
   const entry = createRow(info);
@@ -673,7 +705,10 @@ const updateSegment = (info) => {
   }
   const previousOrder = entry.info.order;
   mergeInfo(entry, info);
-  if (isFilteredTranscript(entry.info.transcript)) {
+  if (
+    (isFilteredTranscript(entry.info.transcript) || isTranscriptCleared(entry.info)) &&
+    !hasTranslationText(entry.info.translation)
+  ) {
     removeSegmentRow(info.name);
     return;
   }
@@ -725,7 +760,7 @@ const loadSegments = async () => {
       if (!segment?.name || segmentMap.has(segment.name)) {
         continue;
       }
-      if (isFilteredTranscript(segment.transcript)) {
+      if ((isFilteredTranscript(segment.transcript) || isTranscriptCleared(segment)) && !hasTranslationText(segment.translation)) {
         continue;
       }
       const entry = createRow(segment);
@@ -948,15 +983,11 @@ transcriptionToggleBtn?.addEventListener("click", async () => {
 
 transcriptionClearBtn?.addEventListener("click", async () => {
   try {
-    await invoke("clear_segments");
+    await invoke("clear_segment_transcripts");
   } catch (error) {
-    console.warn("clear_segments error", error);
+    console.warn("clear_segment_transcripts error", error);
   }
-  transcriptionRunning = false;
-  translationRunning = false;
-  translationStartOrderFloor = Number.NEGATIVE_INFINITY;
-  updateRegionControlUi();
-  clearSegmentsUi();
+  clearTranscriptionTextsUi();
 });
 
 translationToggleBtn?.addEventListener("click", async () => {
@@ -1020,6 +1051,10 @@ const handleBackendEvent = (type, payload) => {
     clearSegmentsUi();
     return;
   }
+  if (type === "segment_transcripts_cleared") {
+    clearTranscriptionTextsUi();
+    return;
+  }
   if (type === "segment_translation_canceled") {
     clearQueuedRowTranslations();
     rowTranslationRequested.clear();
@@ -1070,6 +1105,9 @@ listen("segment_transcribed", (event) => handleBackendEvent("segment_transcribed
 listen("segment_translated", (event) => handleBackendEvent("segment_translated", event?.payload));
 listen("segment_speakered", (event) => handleBackendEvent("segment_speakered", event?.payload));
 listen("segment_list_cleared", (event) => handleBackendEvent("segment_list_cleared", event?.payload));
+listen("segment_transcripts_cleared", (event) =>
+  handleBackendEvent("segment_transcripts_cleared", event?.payload),
+);
 listen("segment_translation_canceled", (event) =>
   handleBackendEvent("segment_translation_canceled", event?.payload),
 );

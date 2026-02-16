@@ -105,6 +105,7 @@ const BRIDGED_OUTPUT_EVENTS = [
   "segment_translated",
   "segment_speakered",
   "segment_list_cleared",
+  "segment_transcripts_cleared",
   "segment_translation_canceled",
   "window_transcribed",
   "live_translation_start",
