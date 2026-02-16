@@ -1268,6 +1268,9 @@ fn main() {
         .manage(asr_state)
         .manage(Arc::new(RagState::new()))
         .setup(|app| {
+            let capture_manager = app.state::<CaptureManager>();
+            capture_manager.clear_task_queues(&app.handle());
+
             let asr_config = load_config()
                 .ok()
                 .and_then(|cfg| cfg.asr)

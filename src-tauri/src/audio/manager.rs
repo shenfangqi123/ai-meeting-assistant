@@ -221,6 +221,7 @@ pub struct CaptureManager {
     queues: Mutex<Option<TaskQueues>>,
     translation_pending: Arc<Mutex<HashMap<String, Option<String>>>>,
     speaker_state: Arc<Mutex<SpeakerState>>,
+    transcription_generation: Arc<AtomicU64>,
     translation_generation: Arc<AtomicU64>,
     drop_segment_translation: Arc<AtomicBool>,
 }
@@ -238,13 +239,20 @@ struct StreamHandle {
 
 #[derive(Clone)]
 struct TaskQueues {
-    transcribe_tx: mpsc::Sender<String>,
+    transcribe_tx: mpsc::Sender<TranscriptionTask>,
+    transcription_generation: Arc<AtomicU64>,
     vad_tx: mpsc::Sender<VadTask>,
     translation_queue: Arc<TranslationQueue>,
     translation_in_flight: Arc<AtomicBool>,
     window_tx: mpsc::Sender<WindowTask>,
     window_in_flight: Arc<AtomicBool>,
     speaker_state: Arc<Mutex<SpeakerState>>,
+}
+
+#[derive(Debug, Clone)]
+struct TranscriptionTask {
+    name: String,
+    generation: u64,
 }
 
 #[derive(Debug, Clone)]
@@ -366,8 +374,9 @@ impl CaptureManager {
             queues: Mutex::new(None),
             translation_pending: Arc::new(Mutex::new(HashMap::new())),
             speaker_state: Arc::new(Mutex::new(SpeakerState::default())),
+            transcription_generation: Arc::new(AtomicU64::new(0)),
             translation_generation: Arc::new(AtomicU64::new(0)),
-            drop_segment_translation: Arc::new(AtomicBool::new(false)),
+            drop_segment_translation: Arc::new(AtomicBool::new(true)),
         }
     }
 
@@ -384,9 +393,10 @@ impl CaptureManager {
         let (vad_tx, vad_rx) = mpsc::channel();
         let translation_queue = Arc::new(TranslationQueue::new());
         let translation_in_flight = Arc::new(AtomicBool::new(false));
+        let transcription_generation = Arc::clone(&self.transcription_generation);
         let segments = Arc::clone(&self.segments);
         let pending = Arc::clone(&self.translation_pending);
-        let generation = Arc::clone(&self.translation_generation);
+        let translation_generation = Arc::clone(&self.translation_generation);
         let drop_segment_translation = Arc::clone(&self.drop_segment_translation);
         let app_handle = app.clone();
         let dir_buf = dir.to_path_buf();
@@ -399,7 +409,8 @@ impl CaptureManager {
                 rx,
                 translation_queue_clone,
                 pending,
-                generation,
+                transcription_generation,
+                translation_generation,
                 drop_segment_translation,
             );
         });
@@ -408,6 +419,7 @@ impl CaptureManager {
         let dir_buf = dir.to_path_buf();
         let segments = Arc::clone(&self.segments);
         let transcribe_tx = tx.clone();
+        let transcription_generation = Arc::clone(&self.transcription_generation);
         let speaker_state = Arc::clone(&self.speaker_state);
         thread::spawn(move || {
             run_vad_worker(
@@ -416,6 +428,7 @@ impl CaptureManager {
                 segments,
                 vad_rx,
                 transcribe_tx,
+                transcription_generation,
                 speaker_state,
             );
         });
@@ -425,7 +438,7 @@ impl CaptureManager {
         let segments = Arc::clone(&self.segments);
         let translation_queue_clone = Arc::clone(&translation_queue);
         let translation_in_flight_clone = Arc::clone(&translation_in_flight);
-        let generation = Arc::clone(&self.translation_generation);
+        let translation_generation = Arc::clone(&self.translation_generation);
         thread::spawn(move || {
             run_translation_worker(
                 app_handle,
@@ -433,7 +446,7 @@ impl CaptureManager {
                 segments,
                 translation_queue_clone,
                 translation_in_flight_clone,
-                generation,
+                translation_generation,
             );
         });
 
@@ -448,6 +461,7 @@ impl CaptureManager {
 
         let queues = TaskQueues {
             transcribe_tx: tx,
+            transcription_generation: Arc::clone(&self.transcription_generation),
             vad_tx,
             translation_queue,
             translation_in_flight,
@@ -518,25 +532,23 @@ impl CaptureManager {
         Ok(())
     }
 
-    pub fn stop(&self, app: &AppHandle, drop_translations: bool) -> Result<(), String> {
-        if drop_translations {
-            self.drop_pending_translations(app);
-        }
+    pub fn stop(&self, app: &AppHandle, _drop_translations: bool) -> Result<(), String> {
         let mut guard = self
             .handle
             .lock()
             .map_err(|_| "capture state poisoned".to_string())?;
-        let Some(handle) = guard.take() else {
-            return Ok(());
-        };
-        handle.stop.store(true, Ordering::SeqCst);
-        let _ = handle.handle.join();
-        if let Some(stream) = handle.stream {
-            if let Ok(mut child) = stream.child.lock() {
-                let _ = child.kill();
+        if let Some(handle) = guard.take() {
+            handle.stop.store(true, Ordering::SeqCst);
+            let _ = handle.handle.join();
+            if let Some(stream) = handle.stream {
+                if let Ok(mut child) = stream.child.lock() {
+                    let _ = child.kill();
+                }
+                let _ = stream.reader.join();
             }
-            let _ = stream.reader.join();
         }
+        drop(guard);
+        self.clear_task_queues(app);
         Ok(())
     }
 
@@ -666,8 +678,9 @@ impl CaptureManager {
         Ok(())
     }
 
-    fn drop_pending_translations(&self, app: &AppHandle) {
+    pub fn clear_task_queues(&self, app: &AppHandle) {
         self.drop_segment_translation.store(true, Ordering::SeqCst);
+        self.transcription_generation.fetch_add(1, Ordering::SeqCst);
         self.translation_generation.fetch_add(1, Ordering::SeqCst);
         if let Ok(mut guard) = self.translation_pending.lock() {
             guard.clear();
@@ -878,7 +891,8 @@ fn finalize_segment_with_vad(
     app: &AppHandle,
     dir: &Path,
     segments: &Arc<Mutex<Vec<SegmentInfo>>>,
-    transcribe_tx: &mpsc::Sender<String>,
+    transcribe_tx: &mpsc::Sender<TranscriptionTask>,
+    transcription_generation: &Arc<AtomicU64>,
     speaker_state: &Arc<Mutex<SpeakerState>>,
     min_transcribe_ms: u64,
     asr_config: &AsrConfig,
@@ -899,7 +913,10 @@ fn finalize_segment_with_vad(
 
     if should_keep {
         push_segment(app, dir, segments, speaker_state, info.clone());
-        let _ = transcribe_tx.send(info.name);
+        let _ = transcribe_tx.send(TranscriptionTask {
+            name: info.name,
+            generation: transcription_generation.load(Ordering::SeqCst),
+        });
     } else {
         let _ = fs::remove_file(&path);
     }
@@ -942,6 +959,7 @@ fn finalize_segment(
                 dir,
                 segments,
                 &queues.transcribe_tx,
+                &queues.transcription_generation,
                 &queues.speaker_state,
                 task.min_transcribe_ms,
                 &task.asr_config,
@@ -957,7 +975,10 @@ fn finalize_segment(
 }
 
 fn enqueue_transcription(queues: &TaskQueues, name: String) {
-    let _ = queues.transcribe_tx.send(name);
+    let _ = queues.transcribe_tx.send(TranscriptionTask {
+        name,
+        generation: queues.transcription_generation.load(Ordering::SeqCst),
+    });
 }
 
 fn apply_transcript(
@@ -1038,14 +1059,19 @@ fn run_transcription_worker(
     app: AppHandle,
     dir: PathBuf,
     segments: Arc<Mutex<Vec<SegmentInfo>>>,
-    rx: mpsc::Receiver<String>,
+    rx: mpsc::Receiver<TranscriptionTask>,
     translation_queue: Arc<TranslationQueue>,
     pending: Arc<Mutex<HashMap<String, Option<String>>>>,
+    transcription_generation: Arc<AtomicU64>,
     translation_generation: Arc<AtomicU64>,
     drop_segment_translation: Arc<AtomicBool>,
 ) {
     let mut context_state = WhisperContextState::new(load_whisper_context_policy());
-    while let Ok(name) = rx.recv() {
+    while let Ok(task) = rx.recv() {
+        if task.generation != transcription_generation.load(Ordering::SeqCst) {
+            continue;
+        }
+        let name = task.name;
         let path = dir.join(&name);
         let meta = load_segment_context_meta(&segments, &name);
         let prompt_hint = meta
@@ -1087,7 +1113,8 @@ fn run_vad_worker(
     dir: PathBuf,
     segments: Arc<Mutex<Vec<SegmentInfo>>>,
     rx: mpsc::Receiver<VadTask>,
-    transcribe_tx: mpsc::Sender<String>,
+    transcribe_tx: mpsc::Sender<TranscriptionTask>,
+    transcription_generation: Arc<AtomicU64>,
     speaker_state: Arc<Mutex<SpeakerState>>,
 ) {
     while let Ok(task) = rx.recv() {
@@ -1096,6 +1123,7 @@ fn run_vad_worker(
             &dir,
             &segments,
             &transcribe_tx,
+            &transcription_generation,
             &speaker_state,
             task.min_transcribe_ms,
             &task.asr_config,
