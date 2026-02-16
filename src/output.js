@@ -52,6 +52,7 @@ const normalizeText = (value) => {
 };
 
 const hasTranslationText = (value) => normalizeText(value).length > 0;
+const isFilteredTranscript = (value) => value !== null && value !== undefined && !normalizeText(value);
 
 const clamp = (value, min, max) => Math.max(min, Math.min(max, value));
 const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -452,6 +453,16 @@ const queueMissingRowTranslations = () => {
   }
 };
 
+const removeFromTranslationQueue = (name) => {
+  for (let index = translationInvokeQueue.length - 1; index >= 0; index -= 1) {
+    if (translationInvokeQueue[index] === name) {
+      translationInvokeQueue.splice(index, 1);
+    }
+  }
+  translationInvokeQueued.delete(name);
+  rowTranslationRequested.delete(name);
+};
+
 const mergeInfo = (entry, payload) => {
   if (!payload) return;
   for (const [key, value] of Object.entries(payload)) {
@@ -563,12 +574,28 @@ const scrollSegmentsToBottom = () => {
   });
 };
 
+const removeSegmentRow = (name) => {
+  if (!name) return;
+  const entry = segmentMap.get(name);
+  removeFromTranslationQueue(name);
+  if (!entry) {
+    return;
+  }
+  entry.row.remove();
+  segmentMap.delete(name);
+  updateStatus();
+};
+
 const addSegment = (info, { scrollToBottom = true } = {}) => {
   if (!info || !info.name) return;
   if (segmentMap.has(info.name)) {
     const existing = segmentMap.get(info.name);
     const previousOrder = existing.info.order;
     mergeInfo(existing, info);
+    if (isFilteredTranscript(existing.info.transcript)) {
+      removeSegmentRow(info.name);
+      return;
+    }
     renderRow(existing);
     if (existing.info.order !== previousOrder) {
       insertRowByOrder(existing);
@@ -576,6 +603,9 @@ const addSegment = (info, { scrollToBottom = true } = {}) => {
     return;
   }
 
+  if (isFilteredTranscript(info.transcript)) {
+    return;
+  }
   const entry = createRow(info);
   segmentMap.set(info.name, entry);
   insertRowByOrder(entry);
@@ -594,6 +624,10 @@ const updateSegment = (info) => {
   }
   const previousOrder = entry.info.order;
   mergeInfo(entry, info);
+  if (isFilteredTranscript(entry.info.transcript)) {
+    removeSegmentRow(info.name);
+    return;
+  }
   renderRow(entry);
   if (entry.info.order !== previousOrder) {
     insertRowByOrder(entry);
@@ -639,6 +673,9 @@ const loadSegments = async () => {
     const fragment = document.createDocumentFragment();
     for (const segment of ordered) {
       if (!segment?.name || segmentMap.has(segment.name)) {
+        continue;
+      }
+      if (isFilteredTranscript(segment.transcript)) {
         continue;
       }
       const entry = createRow(segment);
