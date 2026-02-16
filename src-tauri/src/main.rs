@@ -1014,6 +1014,32 @@ fn is_translation_busy(state: State<'_, CaptureManager>) -> bool {
 }
 
 #[tauri::command]
+fn set_transcription_enabled(state: State<'_, CaptureManager>, enabled: bool) -> bool {
+    state.set_transcription_enabled(enabled);
+    enabled
+}
+
+#[tauri::command]
+fn clear_transcription_queue(state: State<'_, CaptureManager>) {
+    state.clear_transcription_queue();
+}
+
+#[tauri::command]
+fn set_translation_enabled(
+    app: AppHandle,
+    state: State<'_, CaptureManager>,
+    enabled: bool,
+) -> bool {
+    state.set_translation_enabled(&app, enabled);
+    enabled
+}
+
+#[tauri::command]
+fn clear_translation_queue(app: AppHandle, state: State<'_, CaptureManager>) {
+    state.clear_translation_queue(&app);
+}
+
+#[tauri::command]
 async fn list_segments(
     app: AppHandle,
     state: State<'_, CaptureManager>,
@@ -1178,6 +1204,10 @@ fn main() {
             start_loopback_capture,
             stop_loopback_capture,
             is_translation_busy,
+            set_transcription_enabled,
+            clear_transcription_queue,
+            set_translation_enabled,
+            clear_translation_queue,
             list_segments,
             read_segment_bytes,
             clear_segments,

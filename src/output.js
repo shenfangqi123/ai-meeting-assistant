@@ -11,6 +11,10 @@ const questionSplitBarEl = document.getElementById("questionSplitBar");
 const translateToggle = document.getElementById("translateToggle");
 const questionsToggle = document.getElementById("questionsToggle");
 const autoScrollToggle = document.getElementById("autoScrollToggle");
+const transcriptionToggleBtn = document.getElementById("transcriptionToggleBtn");
+const transcriptionClearBtn = document.getElementById("transcriptionClearBtn");
+const translationToggleBtn = document.getElementById("translationToggleBtn");
+const translationClearBtn = document.getElementById("translationClearBtn");
 
 const liveFinalEl = document.getElementById("liveFinal");
 const livePartialEl = document.getElementById("livePartial");
@@ -38,6 +42,8 @@ const QUESTION_TEST_TEXT = "测试问题：你最想优化这个功能的哪一�
 let translateEnabled = false;
 let questionsEnabled = false;
 let autoScrollEnabled = false;
+let transcriptionRunning = false;
+let translationRunning = false;
 let draggingSplit = null;
 let translationInvokeRunning = false;
 let liveStreamOrder = Number.NEGATIVE_INFINITY;
@@ -289,6 +295,23 @@ const applyBoardLayout = () => {
   syncBoardColumns();
 };
 
+const setRunningButtonState = (button, running) => {
+  if (!button) return;
+  button.textContent = running ? "停止" : "开始";
+  button.dataset.running = running ? "1" : "0";
+};
+
+const updateRegionControlUi = () => {
+  setRunningButtonState(transcriptionToggleBtn, transcriptionRunning);
+  setRunningButtonState(translationToggleBtn, translationRunning);
+  if (translationToggleBtn) {
+    translationToggleBtn.disabled = !translateEnabled;
+  }
+  if (translationClearBtn) {
+    translationClearBtn.disabled = !translateEnabled;
+  }
+};
+
 const updateStatus = () => {
   const count = segmentMap.size;
   if (statusEl) {
@@ -374,6 +397,17 @@ const clearQueuedRowTranslations = () => {
   translationInvokeQueued.clear();
 };
 
+const clearTranslationTextsUi = () => {
+  for (const entry of segmentMap.values()) {
+    entry.info.translation = null;
+    renderRowTranslation(entry);
+  }
+  liveStreamOrder = Number.NEGATIVE_INFINITY;
+  liveStreamId = "";
+  liveStreamText = "";
+  setLiveFinal("", "pending");
+};
+
 const drainRowTranslationQueue = async () => {
   if (translationInvokeRunning) return;
   translationInvokeRunning = true;
@@ -428,7 +462,7 @@ const drainRowTranslationQueue = async () => {
 };
 
 const queueRowTranslation = (entry) => {
-  if (!translateEnabled || !entry?.info?.name) return;
+  if (!translateEnabled || !translationRunning || !entry?.info?.name) return;
   const name = entry.info.name;
   if (!normalizeText(entry.info.transcript)) return;
   if (hasTranslationText(entry.info.translation)) return;
@@ -447,7 +481,7 @@ const queueRowTranslation = (entry) => {
 };
 
 const queueMissingRowTranslations = () => {
-  if (!translateEnabled) return;
+  if (!translateEnabled || !translationRunning) return;
   for (const entry of segmentMap.values()) {
     queueRowTranslation(entry);
   }
@@ -642,6 +676,7 @@ const updateBoardUi = () => {
     questionsToggle.checked = questionsEnabled;
   }
   applyBoardLayout();
+  updateRegionControlUi();
   if (!translateEnabled) {
     clearQueuedRowTranslations();
   }
@@ -851,17 +886,76 @@ autoScrollToggle?.addEventListener("change", () => {
   }
 });
 
+const setTranscriptionRunningState = async (enabled) => {
+  await invoke("set_transcription_enabled", { enabled });
+  transcriptionRunning = !!enabled;
+  updateRegionControlUi();
+};
+
+const setTranslationRunningState = async (enabled) => {
+  await invoke("set_translation_enabled", { enabled });
+  translationRunning = !!enabled;
+  if (!translationRunning) {
+    clearQueuedRowTranslations();
+    rowTranslationRequested.clear();
+  }
+  if (translationRunning) {
+    queueMissingRowTranslations();
+  }
+  updateRegionControlUi();
+};
+
+transcriptionToggleBtn?.addEventListener("click", async () => {
+  const next = !transcriptionRunning;
+  try {
+    await setTranscriptionRunningState(next);
+  } catch (error) {
+    console.warn("set_transcription_enabled error", error);
+  }
+});
+
+transcriptionClearBtn?.addEventListener("click", async () => {
+  try {
+    await invoke("clear_transcription_queue");
+  } catch (error) {
+    console.warn("clear_transcription_queue error", error);
+  }
+  clearSegmentsUi();
+});
+
+translationToggleBtn?.addEventListener("click", async () => {
+  const next = !translationRunning;
+  try {
+    await setTranslationRunningState(next);
+  } catch (error) {
+    console.warn("set_translation_enabled error", error);
+  }
+});
+
+translationClearBtn?.addEventListener("click", async () => {
+  try {
+    await invoke("clear_translation_queue");
+  } catch (error) {
+    console.warn("clear_translation_queue error", error);
+  }
+  clearQueuedRowTranslations();
+  rowTranslationRequested.clear();
+  clearTranslationTextsUi();
+});
+
 const handleBackendEvent = (type, payload) => {
   if (type === "segment_created") {
+    if (!transcriptionRunning) return;
     if (payload) {
       addSegment(payload, { scrollToBottom: true });
     }
     return;
   }
   if (type === "segment_transcribed") {
+    if (!transcriptionRunning) return;
     if (!payload) return;
     updateSegment(payload);
-    if (translateEnabled) {
+    if (translateEnabled && translationRunning) {
       const entry = segmentMap.get(payload.name);
       if (entry) {
         queueRowTranslation(entry);
@@ -892,30 +986,35 @@ const handleBackendEvent = (type, payload) => {
     return;
   }
   if (type === "window_transcribed") {
+    if (!transcriptionRunning) return;
     if (payload) {
       applyWindowTranscript(payload);
     }
     return;
   }
   if (type === "live_translation_start") {
+    if (!translationRunning) return;
     if (payload) {
       handleLiveTranslationStart(payload);
     }
     return;
   }
   if (type === "live_translation_chunk") {
+    if (!translationRunning) return;
     if (payload) {
       handleLiveTranslationChunk(payload);
     }
     return;
   }
   if (type === "live_translation_done") {
+    if (!translationRunning) return;
     if (payload) {
       handleLiveTranslationDone(payload);
     }
     return;
   }
   if (type === "live_translation_error") {
+    if (!translationRunning) return;
     if (payload) {
       handleLiveTranslationError(payload);
     }

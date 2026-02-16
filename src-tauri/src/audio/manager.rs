@@ -221,6 +221,7 @@ pub struct CaptureManager {
     queues: Mutex<Option<TaskQueues>>,
     translation_pending: Arc<Mutex<HashMap<String, Option<String>>>>,
     speaker_state: Arc<Mutex<SpeakerState>>,
+    transcription_enabled: Arc<AtomicBool>,
     transcription_generation: Arc<AtomicU64>,
     translation_generation: Arc<AtomicU64>,
     drop_segment_translation: Arc<AtomicBool>,
@@ -240,6 +241,7 @@ struct StreamHandle {
 #[derive(Clone)]
 struct TaskQueues {
     transcribe_tx: mpsc::Sender<TranscriptionTask>,
+    transcription_enabled: Arc<AtomicBool>,
     transcription_generation: Arc<AtomicU64>,
     vad_tx: mpsc::Sender<VadTask>,
     translation_queue: Arc<TranslationQueue>,
@@ -374,6 +376,7 @@ impl CaptureManager {
             queues: Mutex::new(None),
             translation_pending: Arc::new(Mutex::new(HashMap::new())),
             speaker_state: Arc::new(Mutex::new(SpeakerState::default())),
+            transcription_enabled: Arc::new(AtomicBool::new(false)),
             transcription_generation: Arc::new(AtomicU64::new(0)),
             translation_generation: Arc::new(AtomicU64::new(0)),
             drop_segment_translation: Arc::new(AtomicBool::new(true)),
@@ -420,6 +423,7 @@ impl CaptureManager {
         let segments = Arc::clone(&self.segments);
         let transcribe_tx = tx.clone();
         let transcription_generation = Arc::clone(&self.transcription_generation);
+        let transcription_enabled = Arc::clone(&self.transcription_enabled);
         let speaker_state = Arc::clone(&self.speaker_state);
         thread::spawn(move || {
             run_vad_worker(
@@ -428,6 +432,7 @@ impl CaptureManager {
                 segments,
                 vad_rx,
                 transcribe_tx,
+                transcription_enabled,
                 transcription_generation,
                 speaker_state,
             );
@@ -454,13 +459,21 @@ impl CaptureManager {
         let window_in_flight = Arc::new(AtomicBool::new(false));
         let app_handle = app.clone();
         let in_flight = Arc::clone(&window_in_flight);
+        let transcription_enabled = Arc::clone(&self.transcription_enabled);
         let speaker_state = Arc::clone(&self.speaker_state);
         thread::spawn(move || {
-            run_window_worker(app_handle, window_rx, in_flight, speaker_state);
+            run_window_worker(
+                app_handle,
+                window_rx,
+                in_flight,
+                transcription_enabled,
+                speaker_state,
+            );
         });
 
         let queues = TaskQueues {
             transcribe_tx: tx,
+            transcription_enabled: Arc::clone(&self.transcription_enabled),
             transcription_generation: Arc::clone(&self.transcription_generation),
             vad_tx,
             translation_queue,
@@ -488,7 +501,6 @@ impl CaptureManager {
         }
 
         let segments_dir = ensure_segments_dir(&app)?;
-        self.drop_segment_translation.store(false, Ordering::SeqCst);
         let config = load_config(&app);
         let mut asr_config = load_app_config()
             .ok()
@@ -550,6 +562,41 @@ impl CaptureManager {
         drop(guard);
         self.clear_task_queues(app);
         Ok(())
+    }
+
+    pub fn set_transcription_enabled(&self, enabled: bool) {
+        self.transcription_enabled.store(enabled, Ordering::SeqCst);
+        if !enabled {
+            self.clear_transcription_queue();
+        }
+    }
+
+    pub fn clear_transcription_queue(&self) {
+        self.transcription_generation.fetch_add(1, Ordering::SeqCst);
+        if let Ok(mut guard) = self.translation_pending.lock() {
+            guard.clear();
+        }
+    }
+
+    pub fn set_translation_enabled(&self, app: &AppHandle, enabled: bool) {
+        self.drop_segment_translation
+            .store(!enabled, Ordering::SeqCst);
+        if !enabled {
+            self.clear_translation_queue(app);
+        }
+    }
+
+    pub fn clear_translation_queue(&self, app: &AppHandle) {
+        self.translation_generation.fetch_add(1, Ordering::SeqCst);
+        if let Ok(mut guard) = self.translation_pending.lock() {
+            guard.clear();
+        }
+        if let Ok(guard) = self.queues.lock() {
+            if let Some(queues) = guard.as_ref() {
+                queues.translation_queue.clear();
+            }
+        }
+        let _ = app.emit("segment_translation_canceled", true);
     }
 
     pub fn is_translation_busy(&self) -> bool {
@@ -675,18 +722,8 @@ impl CaptureManager {
     }
 
     pub fn clear_task_queues(&self, app: &AppHandle) {
-        self.drop_segment_translation.store(true, Ordering::SeqCst);
-        self.transcription_generation.fetch_add(1, Ordering::SeqCst);
-        self.translation_generation.fetch_add(1, Ordering::SeqCst);
-        if let Ok(mut guard) = self.translation_pending.lock() {
-            guard.clear();
-        }
-        if let Ok(guard) = self.queues.lock() {
-            if let Some(queues) = guard.as_ref() {
-                queues.translation_queue.clear();
-            }
-        }
-        let _ = app.emit("segment_translation_canceled", true);
+        self.clear_transcription_queue();
+        self.clear_translation_queue(app);
     }
 }
 
@@ -773,9 +810,11 @@ fn run_capture(
 
         let frame_count = (pcm.len() / channels as usize) as u64;
         let is_silence = is_silence(&pcm, config.silence_threshold_db);
+        let transcription_active = queues.transcription_enabled.load(Ordering::SeqCst);
 
         if rolling_enabled
             && window_transcribe_enabled
+            && transcription_active
             && rolling_window_frames > 0
             && rolling_step_frames > 0
         {
@@ -811,6 +850,23 @@ fn run_capture(
                     }
                 }
             }
+        }
+
+        if !transcription_active {
+            if let Some(writer) = current_writer.take() {
+                finalize_segment(
+                    &app,
+                    &segments_dir,
+                    &segments,
+                    &queues,
+                    &asr_config,
+                    writer,
+                    config.min_transcribe_ms,
+                );
+            }
+            segment_frames = 0;
+            silence_frames = 0;
+            continue;
         }
 
         for sample in pcm.iter().copied() {
@@ -886,6 +942,7 @@ fn finalize_segment_with_vad(
     dir: &Path,
     segments: &Arc<Mutex<Vec<SegmentInfo>>>,
     transcribe_tx: &mpsc::Sender<TranscriptionTask>,
+    transcription_enabled: &Arc<AtomicBool>,
     transcription_generation: &Arc<AtomicU64>,
     speaker_state: &Arc<Mutex<SpeakerState>>,
     min_transcribe_ms: u64,
@@ -893,6 +950,10 @@ fn finalize_segment_with_vad(
     info: SegmentInfo,
 ) {
     let path = dir.join(&info.name);
+    if !transcription_enabled.load(Ordering::SeqCst) {
+        let _ = fs::remove_file(&path);
+        return;
+    }
     if min_transcribe_ms > 0 && info.duration_ms < min_transcribe_ms {
         eprintln!(
             "[segment] filtered name={} reason=too_short duration_ms={} min_transcribe_ms={}",
@@ -937,6 +998,12 @@ fn finalize_segment(
         }
     };
 
+    if !queues.transcription_enabled.load(Ordering::SeqCst) {
+        let path = dir.join(&info.name);
+        let _ = fs::remove_file(&path);
+        return;
+    }
+
     if min_transcribe_ms > 0 && info.duration_ms < min_transcribe_ms {
         let path = dir.join(&info.name);
         eprintln!(
@@ -961,6 +1028,7 @@ fn finalize_segment(
                 dir,
                 segments,
                 &queues.transcribe_tx,
+                &queues.transcription_enabled,
                 &queues.transcription_generation,
                 &queues.speaker_state,
                 task.min_transcribe_ms,
@@ -1308,6 +1376,7 @@ fn run_vad_worker(
     segments: Arc<Mutex<Vec<SegmentInfo>>>,
     rx: mpsc::Receiver<VadTask>,
     transcribe_tx: mpsc::Sender<TranscriptionTask>,
+    transcription_enabled: Arc<AtomicBool>,
     transcription_generation: Arc<AtomicU64>,
     speaker_state: Arc<Mutex<SpeakerState>>,
 ) {
@@ -1317,6 +1386,7 @@ fn run_vad_worker(
             &dir,
             &segments,
             &transcribe_tx,
+            &transcription_enabled,
             &transcription_generation,
             &speaker_state,
             task.min_transcribe_ms,
@@ -1602,10 +1672,15 @@ fn run_window_worker(
     app: AppHandle,
     rx: mpsc::Receiver<WindowTask>,
     in_flight: Arc<AtomicBool>,
+    transcription_enabled: Arc<AtomicBool>,
     speaker_state: Arc<Mutex<SpeakerState>>,
 ) {
     let mut diarizer = SpeakerDiarizer::new(&app);
     while let Ok(task) = rx.recv() {
+        if !transcription_enabled.load(Ordering::SeqCst) {
+            in_flight.store(false, Ordering::SeqCst);
+            continue;
+        }
         let started_at = Instant::now();
         let mut speaker_decision = None;
         if let Some(diarizer) = diarizer.as_mut() {

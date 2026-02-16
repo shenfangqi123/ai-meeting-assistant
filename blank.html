@@ -107,6 +107,48 @@
         font-weight: 600;
         letter-spacing: 0.02em;
         padding: 0 10px;
+        min-width: 0;
+      }
+
+      .column-head {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 8px;
+      }
+
+      .column-label {
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .column-actions {
+        display: inline-flex;
+        align-items: center;
+        gap: 6px;
+      }
+
+      .column-btn {
+        border: 1px solid var(--border);
+        background: #f6f1e9;
+        color: var(--ink);
+        border-radius: 999px;
+        font-size: 11px;
+        line-height: 1;
+        padding: 4px 10px;
+        cursor: pointer;
+      }
+
+      .column-btn[data-running="1"] {
+        border-color: #2c6c4f;
+        color: #24533d;
+        background: #e7f4ed;
+      }
+
+      .column-btn:disabled {
+        opacity: 0.55;
+        cursor: not-allowed;
       }
 
       .split-slot {
@@ -324,11 +366,29 @@
       </header>
       <section class="board translation-hidden questions-hidden no-secondary" id="segmentBoard">
         <div class="board-header">
-          <div class="column-title">Transcription</div>
+          <div class="column-title column-head">
+            <span class="column-label">Transcription</span>
+            <span class="column-actions">
+              <button class="column-btn" id="transcriptionToggleBtn" type="button">开始</button>
+              <button class="column-btn" id="transcriptionClearBtn" type="button">清空</button>
+            </span>
+          </div>
           <div class="split-slot divider-main"></div>
-          <div class="column-title translation">Live Translation</div>
+          <div class="column-title column-head translation">
+            <span class="column-label">Live Translation</span>
+            <span class="column-actions">
+              <button class="column-btn" id="translationToggleBtn" type="button">开始</button>
+              <button class="column-btn" id="translationClearBtn" type="button">清空</button>
+            </span>
+          </div>
           <div class="split-slot divider-right"></div>
-          <div class="column-title questions">问题</div>
+          <div class="column-title column-head questions">
+            <span class="column-label">问题</span>
+            <span class="column-actions">
+              <button class="column-btn" id="questionToggleBtn" type="button" disabled>开始</button>
+              <button class="column-btn" id="questionClearBtn" type="button" disabled>清空</button>
+            </span>
+          </div>
         </div>
         <article class="live-row" id="liveRow">
           <div class="cell transcript-cell">
