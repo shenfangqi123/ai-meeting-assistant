@@ -1094,27 +1094,83 @@ fn most_frequent_char_ratio(text: &str) -> f32 {
 }
 
 fn count_noise_keyword_hits(text: &str) -> usize {
-    const NOISE_KEYWORDS: [&str; 14] = [
+    const NOISE_KEYWORDS: [&str; 18] = [
         "music",
         "bgm",
         "applause",
-        "字幕",
-        "音楽",
-        "音乐",
-        "背景音",
-        "环境音",
-        "掌声",
-        "笑声",
-        "効果音",
-        "拍手",
-        "♪",
-        "♫",
+        "\u{5B57}\u{5E55}", // 字幕
+        "\u{97F3}\u{697D}", // 音楽
+        "\u{97F3}\u{4E50}", // 音乐
+        "\u{97F3}\u{6A02}", // 音樂
+        "\u{80CC}\u{666F}\u{97F3}", // 背景音
+        "\u{73AF}\u{5883}\u{97F3}", // 环境音
+        "\u{638C}\u{58F0}", // 掌声
+        "\u{7B11}\u{58F0}", // 笑声
+        "\u{52B9}\u{679C}\u{97F3}", // 効果音
+        "\u{62CD}\u{624B}", // 拍手
+        "\u{266A}",         // ♪
+        "\u{266B}",         // ♫
+        "\u{4F34}\u{594F}", // 伴奏
+        "\u{914D}\u{4E50}", // 配乐
+        "\u{914D}\u{6A02}", // 配樂
     ];
     let lower = text.to_lowercase();
     NOISE_KEYWORDS
         .iter()
         .filter(|keyword| lower.contains(**keyword))
         .count()
+}
+
+fn is_noise_punct(ch: char) -> bool {
+    ch.is_ascii_punctuation()
+        || matches!(
+            ch,
+            '\u{FF08}' // （
+                | '\u{FF09}' // ）
+                | '\u{3010}' // 【
+                | '\u{3011}' // 】
+                | '\u{300C}' // 「
+                | '\u{300D}' // 」
+                | '\u{FF1A}' // ：
+                | '\u{3002}' // 。
+                | '\u{FF01}' // ！
+                | '\u{FF1F}' // ？
+                | '\u{3001}' // 、
+                | '\u{FF0C}' // ，
+        )
+}
+
+fn is_noise_label_only(text: &str) -> bool {
+    const NOISE_LABELS: [&str; 16] = [
+        "music",
+        "bgm",
+        "applause",
+        "noise",
+        "static",
+        "\u{97F3}\u{697D}", // 音楽
+        "\u{97F3}\u{4E50}", // 音乐
+        "\u{97F3}\u{6A02}", // 音樂
+        "\u{80CC}\u{666F}\u{97F3}", // 背景音
+        "\u{73AF}\u{5883}\u{97F3}", // 环境音
+        "\u{52B9}\u{679C}\u{97F3}", // 効果音
+        "\u{97F3}\u{6548}", // 音效
+        "\u{4F34}\u{594F}", // 伴奏
+        "\u{914D}\u{4E50}", // 配乐
+        "\u{914D}\u{6A02}", // 配樂
+        "\u{638C}\u{58F0}", // 掌声
+    ];
+
+    let normalized = text
+        .trim()
+        .chars()
+        .filter(|ch| !ch.is_whitespace() && !is_noise_punct(*ch))
+        .collect::<String>()
+        .to_lowercase();
+    if normalized.is_empty() {
+        return false;
+    }
+
+    NOISE_LABELS.iter().any(|label| normalized == *label)
 }
 
 fn should_drop_non_speech_transcript(text: &str, asr_config: &AsrConfig) -> bool {
@@ -1132,6 +1188,9 @@ fn should_drop_non_speech_transcript(text: &str, asr_config: &AsrConfig) -> bool
         .clamp(0.50, 0.98);
     let noise_keyword_hits = count_noise_keyword_hits(text);
 
+    if is_noise_label_only(text) {
+        return true;
+    }
     if noise_keyword_hits > 0 && meaningful_chars <= noise_max_meaningful {
         return true;
     }
