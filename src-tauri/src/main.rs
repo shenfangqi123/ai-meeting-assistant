@@ -26,8 +26,6 @@ use tauri::{
 use whisper_server::WhisperServerManager;
 
 const INTRO_URL: &str = "intro.html";
-const MIN_TOP_HEIGHT: f64 = 190.0;
-const MAX_TOP_HEIGHT: f64 = 10_000.0;
 const DEFAULT_OLLAMA_BASE_URL: &str = "http://localhost:11434";
 const DEFAULT_OLLAMA_TIMEOUT: u64 = 600;
 const DEFAULT_OLLAMA_MODEL: &str = "gpt-oss:20b";
@@ -106,10 +104,6 @@ struct LiveTranslationError {
     error: String,
 }
 
-struct LayoutState {
-    top_height: Mutex<Option<f64>>,
-}
-
 struct TranslateProviderState {
     provider: Mutex<String>,
 }
@@ -173,22 +167,6 @@ async fn content_navigate(app: AppHandle, url: String) -> Result<(), String> {
         .title("Meeting")
         .build()
         .map_err(|err| err.to_string())?;
-    Ok(())
-}
-
-#[tauri::command]
-async fn set_top_height(
-    _app: AppHandle,
-    state: State<'_, LayoutState>,
-    height: f64,
-) -> Result<(), String> {
-    let clamped = height
-        .max(MIN_TOP_HEIGHT)
-        .min(MAX_TOP_HEIGHT)
-        .max(MIN_TOP_HEIGHT);
-    if let Ok(mut guard) = state.top_height.lock() {
-        *guard = Some(clamped);
-    }
     Ok(())
 }
 
@@ -1163,9 +1141,6 @@ fn main() {
         .and_then(|cfg| cfg.translate.and_then(|translate| translate.provider))
         .unwrap_or_else(|| "ollama".to_string());
     tauri::Builder::default()
-        .manage(LayoutState {
-            top_height: Mutex::new(None),
-        })
         .manage(TranslateProviderState {
             provider: Mutex::new(normalize_translate_provider(&initial_translate_provider)),
         })
@@ -1200,7 +1175,6 @@ fn main() {
             open_external_window,
             open_intro_window,
             content_navigate,
-            set_top_height,
             start_loopback_capture,
             stop_loopback_capture,
             is_translation_busy,

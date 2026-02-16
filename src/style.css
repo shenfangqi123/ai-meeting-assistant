@@ -13,8 +13,6 @@
   --border: #d9d2c7;
   --shadow: 0 18px 40px rgba(31, 27, 22, 0.12);
   --layout-padding: 20px;
-  --splitter-height: 10px;
-  --top-pane-height: 190px;
 }
 
 * {
@@ -39,27 +37,21 @@ body {
 #layoutRoot {
   position: fixed;
   inset: 0;
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  gap: 16px;
+  padding: var(--layout-padding);
 }
 
 #app {
-  position: absolute;
-  left: var(--layout-padding);
-  right: var(--layout-padding);
-  top: var(--layout-padding);
-  height: calc(var(--top-pane-height) - var(--layout-padding));
-  min-height: 0;
   display: grid;
   gap: 16px;
   overflow-y: auto;
+  min-height: 0;
 }
 
 #outputPane {
-  position: absolute;
-  left: var(--layout-padding);
-  right: var(--layout-padding);
-  top: calc(var(--top-pane-height) + var(--splitter-height));
-  bottom: var(--layout-padding);
-  min-height: 100px;
+  min-height: 0;
   border-radius: 14px;
   border: 1px solid var(--border);
   background: #f7f4ef;
@@ -631,24 +623,6 @@ button:disabled {
   to {
     transform: rotate(360deg);
   }
-}
-
-.splitter {
-  position: absolute;
-  left: var(--layout-padding);
-  right: var(--layout-padding);
-  top: var(--top-pane-height);
-  height: var(--splitter-height);
-  border-radius: 999px;
-  border: 1px solid var(--border);
-  background: linear-gradient(90deg, rgba(218, 90, 52, 0.25), rgba(218, 90, 52, 0.6));
-  box-shadow: 0 8px 20px rgba(31, 27, 22, 0.16);
-  cursor: row-resize;
-  z-index: 20;
-}
-
-.splitter.dragging {
-  background: linear-gradient(90deg, rgba(218, 90, 52, 0.35), rgba(218, 90, 52, 0.85));
 }
 
 @media (max-width: 900px) {
