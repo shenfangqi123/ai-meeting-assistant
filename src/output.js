@@ -311,14 +311,23 @@ const getTranslateProvider = async () => {
 };
 
 const renderRowTranscript = (entry) => {
-  const transcript = normalizeText(entry.info.transcript);
+  const raw = entry.info.transcript;
+  if (raw === null || raw === undefined) {
+    entry.transcriptEl.textContent = "Transcribing...";
+    entry.transcriptEl.dataset.state = "pending";
+    return;
+  }
+
+  const transcript = normalizeText(raw);
   if (transcript) {
     entry.transcriptEl.textContent = transcript;
     entry.transcriptEl.dataset.state = "ready";
-  } else {
-    entry.transcriptEl.textContent = "Transcribing...";
-    entry.transcriptEl.dataset.state = "pending";
+    return;
   }
+
+  // Transcription finished but content was filtered/empty.
+  entry.transcriptEl.textContent = "无有效语音（已过滤）";
+  entry.transcriptEl.dataset.state = "error";
 };
 
 const renderRowTranslation = (entry) => {
