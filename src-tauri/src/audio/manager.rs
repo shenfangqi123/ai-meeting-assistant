@@ -1780,23 +1780,35 @@ fn parse_vad_range_ms(line: &str, segment_ms: u64) -> Option<(f64, f64)> {
 fn infer_vad_unit_scale(start: f64, end: f64, segment_ms: u64) -> f64 {
     let segment_ms = segment_ms.max(1) as f64;
     let duration_raw = (end - start).max(0.0);
-    let duration_as_ms = duration_raw;
-    let duration_as_sec = duration_raw * 1000.0;
-    let ms_plausible = duration_as_ms <= segment_ms * 1.5;
-    let sec_plausible = duration_as_sec <= segment_ms * 1.5;
-
-    match (ms_plausible, sec_plausible) {
-        (false, true) => 1000.0,
-        (true, false) => 1.0,
-        (true, true) => {
-            if duration_as_sec > duration_as_ms * 10.0 {
-                1000.0
-            } else {
-                1.0
-            }
-        }
-        _ => 1.0,
+    if duration_raw <= 0.0 {
+        return 1.0;
     }
+
+    // Some VAD outputs are in 10ms ticks instead of ms/sec.
+    let candidate_scales = [1.0, 10.0, 1000.0];
+    let mut best_scale = 1.0;
+    let mut best_score = f64::INFINITY;
+
+    for scale in candidate_scales {
+        let start_scaled = start * scale;
+        let end_scaled = end * scale;
+        let duration_scaled = duration_raw * scale;
+        if start_scaled < 0.0 || end_scaled <= start_scaled {
+            continue;
+        }
+        // Filter out clearly impossible timelines for this segment.
+        if end_scaled > segment_ms * 1.5 || duration_scaled > segment_ms * 1.5 {
+            continue;
+        }
+        // Prefer the unit whose end position best aligns with segment timeline.
+        let score = (segment_ms - end_scaled).abs();
+        if score < best_score {
+            best_score = score;
+            best_scale = scale;
+        }
+    }
+
+    best_scale
 }
 
 fn extract_numbers(text: &str) -> Vec<f64> {
